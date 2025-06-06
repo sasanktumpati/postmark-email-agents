@@ -1,20 +1,14 @@
 from typing import Any, Dict
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.db.utils import check_database_connection, get_database_info
-from app.core.utils.response.response import BaseResponse
+from app.core.utils.response import BaseResponse
 
 router: APIRouter = APIRouter(prefix="/health", tags=["health"])
-
-
-class HealthResponse(BaseModel):
-    overall_status: str
-    version: str
-    database_health: "DatabaseHealthResponse"
-    configuration: Dict[str, Any]
 
 
 class DatabaseHealthResponse(BaseModel):
@@ -22,12 +16,19 @@ class DatabaseHealthResponse(BaseModel):
     info: Dict[str, Any]
 
 
+class HealthResponse(BaseModel):
+    overall_status: str
+    version: str
+    database_health: DatabaseHealthResponse
+    configuration: Dict[str, Any]
+
+
 @router.get(
     "/",
     response_model=BaseResponse[HealthResponse],
     responses={500: {"model": BaseResponse}},
 )
-async def health_check():
+async def health_check() -> JSONResponse:
     try:
         db_connected = await check_database_connection()
 
@@ -57,10 +58,16 @@ async def health_check():
                 "max_overflow": settings.db_max_overflow,
             },
         )
+
+        status_code = 200 if db_connected else 503
         return BaseResponse.success(
-            message="Health check performed successfully.", data=app_health_data
+            message="Health check performed successfully.",
+            data=app_health_data,
+            status_code=status_code,
         )
+
     except Exception as e:
         return BaseResponse.error(
-            message=f"Health check internal server error: {str(e)}"
+            message=f"Health check internal server error: {str(e)}",
+            status_code=500,
         )
