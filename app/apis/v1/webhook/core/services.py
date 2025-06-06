@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import mimetypes
 import uuid
@@ -27,11 +28,37 @@ class EmailWebhookService:
         self.attachments_dir = Path("attachments")
         self.attachments_dir.mkdir(exist_ok=True)
 
+    def _encode_to_base64(self, data: str) -> str:
+        """Encode string data to base64."""
+        if not data:
+            return ""
+        return base64.b64encode(data.encode("utf-8")).decode("utf-8")
+
+    def _decode_from_base64(self, data: str) -> str:
+        """Decode base64 string data."""
+        if not data:
+            return ""
+        try:
+            return base64.b64decode(data.encode("utf-8")).decode("utf-8")
+        except Exception as e:
+            logging.error(f"Failed to decode base64 data: {str(e)}")
+            return ""
+
+    def _prepare_raw_json(self, raw_data: Dict) -> str:
+        """Convert raw email data to base64-encoded JSON string."""
+        try:
+            json_string = json.dumps(raw_data, ensure_ascii=False)
+            return self._encode_to_base64(json_string)
+        except Exception as e:
+            raise ValueError(f"Failed to prepare raw JSON data: {str(e)}")
+
     async def save_raw_email(self, raw_data: Dict) -> EmailsRaw:
         """Saves raw email data to the database."""
         try:
+            raw_json_b64 = self._prepare_raw_json(raw_data)
+
             raw_email = EmailsRaw(
-                raw_json=raw_data,
+                raw_json=raw_json_b64,
                 processing_status=ProcessingStatusEnum.PENDING,
                 mailbox_hash=raw_data.get("MailboxHash", ""),
             )
@@ -276,6 +303,22 @@ class EmailWebhookService:
         row = result.first()
         return row[0] if row else None
 
+    async def check_duplicate_email(
+        self, message_id: str, email_identifier: str
+    ) -> Optional[Email]:
+        """Check if an email with the same message_id or email_identifier already exists."""
+        from sqlalchemy import or_, select
+
+        result = await self.db.execute(
+            select(Email).where(
+                or_(
+                    Email.message_id == message_id,
+                    Email.email_identifier == email_identifier,
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def process_webhook_email(
         self, raw_email: EmailsRaw, email_data: PostmarkInboundEmail
     ) -> Email:
@@ -288,6 +331,22 @@ class EmailWebhookService:
 
             parent_email_id = await self.get_parent_email_id(parent_identifier)
 
+            text_body_b64 = (
+                self._encode_to_base64(email_data.TextBody)
+                if email_data.TextBody
+                else None
+            )
+            html_body_b64 = (
+                self._encode_to_base64(email_data.HtmlBody)
+                if email_data.HtmlBody
+                else None
+            )
+            stripped_text_reply_b64 = (
+                self._encode_to_base64(email_data.StrippedTextReply)
+                if email_data.StrippedTextReply
+                else None
+            )
+
             email = Email(
                 raw_email_id=raw_email.id,
                 message_id=email_data.MessageID,
@@ -295,9 +354,9 @@ class EmailWebhookService:
                 from_email=email_data.From,
                 from_name=email_data.FromName,
                 subject=email_data.Subject,
-                text_body=email_data.TextBody,
-                html_body=email_data.HtmlBody,
-                stripped_text_reply=email_data.StrippedTextReply,
+                text_body=text_body_b64,
+                html_body=html_body_b64,
+                stripped_text_reply=stripped_text_reply_b64,
                 sent_at=sent_at,
                 mailbox_hash=email_data.MailboxHash,
                 tag=email_data.Tag,
@@ -324,15 +383,54 @@ class EmailWebhookService:
 
     async def process_postmark_webhook(self, raw_data: Dict) -> Dict[str, str]:
         """Process the Postmark webhook data."""
-        raw_email = await self.save_raw_email(raw_data)
+
         try:
             email_data = self.validate_webhook_request(raw_data)
+        except Exception as e:
+            raise ValueError(f"Invalid webhook data: {str(e)}")
+
+        message_id = email_data.MessageID
+        email_identifier = self.extract_email_identifier(email_data.Headers)
+
+        existing_email = await self.check_duplicate_email(message_id, email_identifier)
+        if existing_email:
+            logging.info(
+                f"Duplicate email detected: message_id={message_id}, "
+                f"email_identifier={email_identifier}, existing_email_id={existing_email.id}"
+            )
+
+            from sqlalchemy import func, select
+
+            attachments_count_result = await self.db.execute(
+                select(func.count(EmailAttachment.id)).where(
+                    EmailAttachment.email_id == existing_email.id
+                )
+            )
+            attachments_count = attachments_count_result.scalar() or 0
+
+            return {
+                "email_id": str(existing_email.id),
+                "raw_email_id": str(existing_email.raw_email_id),
+                "message_id": existing_email.message_id,
+                "attachments_count": str(attachments_count),
+                "duplicate": "true",
+            }
+
+        logging.info(
+            f"Processing new email: message_id={message_id}, email_identifier={email_identifier}"
+        )
+        raw_email = await self.save_raw_email(raw_data)
+        try:
             email = await self.process_webhook_email(raw_email, email_data)
+
+            attachments_count = len(email_data.Attachments or [])
+
             return {
                 "email_id": str(email.id),
                 "raw_email_id": str(raw_email.id),
                 "message_id": email.message_id,
-                "attachments_count": str(len(email.attachments)),
+                "attachments_count": str(attachments_count),
+                "duplicate": "false",
             }
         except Exception as e:
             raw_email.processing_status = ProcessingStatusEnum.FAILED

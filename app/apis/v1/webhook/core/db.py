@@ -1,7 +1,6 @@
 import enum
 
 from sqlalchemy import (
-    JSON,
     Column,
     DateTime,
     Enum,
@@ -48,7 +47,7 @@ class EmailsRaw(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     received_at = Column(DateTime(timezone=True), server_default=func.now())
-    raw_json = Column(JSON)
+    raw_json = Column(Text, comment="Base64 encoded JSON data")
     processing_status = Column(
         Enum(ProcessingStatusEnum), default=ProcessingStatusEnum.PENDING, index=True
     )
@@ -69,9 +68,11 @@ class Email(Base):
     from_name = Column(String(255), nullable=True)
 
     subject = Column(String(998), nullable=True, index=True)
-    text_body = Column(Text, nullable=True)
-    html_body = Column(Text, nullable=True)
-    stripped_text_reply = Column(Text, nullable=True)
+    text_body = Column(Text, nullable=True, comment="Base64 encoded text body")
+    html_body = Column(Text, nullable=True, comment="Base64 encoded HTML body")
+    stripped_text_reply = Column(
+        Text, nullable=True, comment="Base64 encoded stripped text reply"
+    )
 
     sent_at = Column(DateTime(timezone=True), nullable=True, index=True)
     processed_at = Column(DateTime(timezone=True), server_default=func.now())

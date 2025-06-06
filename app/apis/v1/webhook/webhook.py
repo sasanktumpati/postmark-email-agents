@@ -3,6 +3,7 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,11 +48,10 @@ router: APIRouter = APIRouter(prefix="/webhook", tags=["webhook"])
 @router.post(
     "/postmark-webhook",
     response_model=BaseResponse[WebhookProcessingResult],
-    status_code=201,
 )
 async def postmark_webhook(
     request: Request, db: AsyncSession = Depends(get_async_db)
-) -> BaseResponse[WebhookProcessingResult]:
+) -> JSONResponse:
     start_time = time.time()
 
     try:
@@ -67,7 +67,7 @@ async def postmark_webhook(
 
         processing_time = (time.time() - start_time) * 1000
 
-        return BaseResponse.success(
+        response = BaseResponse.success(
             message="Email processed successfully",
             data=WebhookProcessingResult(
                 email_id=result["email_id"],
@@ -77,11 +77,17 @@ async def postmark_webhook(
                 processing_time_ms=processing_time,
                 attachments_count=int(result.get("attachments_count", 0)),
             ),
+            status_code=201,
+        )
+
+        return JSONResponse(
+            content=response.to_dict(),
+            status_code=response.status_code,
         )
 
     except ValueError as e:
         logger.error(f"Validation error in webhook processing: {str(e)}")
-        return BaseResponse.error(
+        response = BaseResponse.error(
             message="Invalid webhook data received",
             data=ErrorDetails(
                 error_code="VALIDATION_ERROR",
@@ -89,10 +95,14 @@ async def postmark_webhook(
                 details={"validation_error": str(e)},
                 suggestions="Please ensure the webhook payload matches Postmark's expected format",
             ),
+            status_code=422,
+        )
+        return JSONResponse(
+            content=response.to_dict(), status_code=response.status_code
         )
     except KeyError as e:
         logger.error(f"Missing required field in webhook: {str(e)}")
-        return BaseResponse.error(
+        response = BaseResponse.error(
             message="Missing required field in webhook data",
             data=ErrorDetails(
                 error_code="MISSING_FIELD",
@@ -100,10 +110,14 @@ async def postmark_webhook(
                 details={"missing_field": str(e)},
                 suggestions="Please check that all required fields are present in the webhook payload",
             ),
+            status_code=422,
+        )
+        return JSONResponse(
+            content=response.to_dict(), status_code=response.status_code
         )
     except Exception as e:
         logger.error(f"Unexpected error processing webhook: {str(e)}", exc_info=True)
-        return BaseResponse.error(
+        response = BaseResponse.error(
             message="Internal server error processing webhook",
             data=ErrorDetails(
                 error_code="INTERNAL_ERROR",
@@ -111,6 +125,11 @@ async def postmark_webhook(
                 details={"error_message": str(e)},
                 suggestions="Please try again or contact support if the issue persists",
             ),
+            status_code=500,
+        )
+        return JSONResponse(
+            content=response.to_dict(),
+            status_code=response.status_code,
         )
 
 

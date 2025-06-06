@@ -7,6 +7,7 @@ T = TypeVar("T")
 
 class BaseResponse(BaseModel, Generic[T]):
     status: int = Field(..., description="Status code: 0 for success, 1 for failure")
+    status_code: int = Field(..., description="HTTP status code")
     message: str = Field(..., min_length=1, description="Response message")
     data: Optional[T] = Field(None, description="Response data")
 
@@ -18,14 +19,18 @@ class BaseResponse(BaseModel, Generic[T]):
         return v
 
     @classmethod
-    def success(cls, message: str, data: Optional[T] = None) -> "BaseResponse[T]":
+    def success(
+        cls, message: str, data: Optional[T] = None, status_code: int = 200
+    ) -> "BaseResponse[T]":
         """Create a success response"""
-        return cls(status=0, message=message, data=data)
+        return cls(status=0, status_code=status_code, message=message, data=data)
 
     @classmethod
-    def error(cls, message: str, data: Optional[T] = None) -> "BaseResponse[T]":
+    def error(
+        cls, message: str, data: Optional[T] = None, status_code: int = 400
+    ) -> "BaseResponse[T]":
         """Create an error response"""
-        return cls(status=1, message=message, data=data)
+        return cls(status=1, status_code=status_code, message=message, data=data)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -36,10 +41,10 @@ class BaseResponse(BaseModel, Generic[T]):
         return self.model_dump_json()
 
     def __str__(self) -> str:
-        return f"BaseResponse(status={self.status}, message='{self.message}')"
+        return f"BaseResponse(status={self.status}, status_code={self.status_code}, message='{self.message}')"
 
     def __repr__(self) -> str:
-        return f"BaseResponse(status={self.status}, message='{self.message}', data={self.data})"
+        return f"BaseResponse(status={self.status}, status_code={self.status_code}, message='{self.message}', data={self.data})"
 
 
 class PaginationInfo(BaseModel):
@@ -75,6 +80,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
     """Model for Paginated Responses."""
 
     status: int = Field(..., description="Status code: 0 for success, 1 for failure")
+    status_code: int = Field(..., description="HTTP status code")
     message: str = Field(..., min_length=1, description="Response message")
     data: List[T] = Field(default_factory=list, description="List of items")
     pagination: PaginationInfo = Field(..., description="Pagination information")
@@ -94,12 +100,19 @@ class PaginatedResponse(BaseModel, Generic[T]):
         page: int,
         limit: int,
         total_items: int,
+        status_code: int = 200,
     ) -> "PaginatedResponse[T]":
         """Create a successful paginated response."""
         pagination = PaginationInfo.create(
             page=page, limit=limit, total_items=total_items
         )
-        return cls(status=0, message=message, data=data, pagination=pagination)
+        return cls(
+            status=0,
+            status_code=status_code,
+            message=message,
+            data=data,
+            pagination=pagination,
+        )
 
     @classmethod
     def error(
@@ -108,12 +121,19 @@ class PaginatedResponse(BaseModel, Generic[T]):
         page: int = 1,
         limit: int = 10,
         total_items: int = 0,
+        status_code: int = 400,
     ) -> "PaginatedResponse[T]":
         """Create an error paginated response."""
         pagination = PaginationInfo.create(
             page=page, limit=limit, total_items=total_items
         )
-        return cls(status=1, message=message, data=[], pagination=pagination)
+        return cls(
+            status=1,
+            status_code=status_code,
+            message=message,
+            data=[],
+            pagination=pagination,
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -124,10 +144,10 @@ class PaginatedResponse(BaseModel, Generic[T]):
         return self.model_dump_json()
 
     def __str__(self) -> str:
-        return f"PaginatedResponse(status={self.status}, message='{self.message}', items={len(self.data)})"
+        return f"PaginatedResponse(status={self.status}, status_code={self.status_code}, message='{self.message}', items={len(self.data)})"
 
     def __repr__(self) -> str:
-        return f"PaginatedResponse(status={self.status}, message='{self.message}', data={len(self.data)} items, pagination={self.pagination})"
+        return f"PaginatedResponse(status={self.status}, status_code={self.status_code}, message='{self.message}', data={len(self.data)} items, pagination={self.pagination})"
 
 
 class ErrorDetails(BaseModel):
