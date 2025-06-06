@@ -15,7 +15,7 @@ from .models import (
     PostmarkInboundEmail,
     ToCcFullModel,
 )
-from .services import (
+from .repo import (
     EmailWebhookService,
     get_email_service,
 )

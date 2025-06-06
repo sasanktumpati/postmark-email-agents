@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_async_db
 from app.core.utils.response import BaseResponse, ErrorDetails
 
-from .core.services import get_email_service
+from .core.repo import get_email_service
 
 logger = logging.getLogger(__name__)
 
