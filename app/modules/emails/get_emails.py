@@ -10,6 +10,7 @@ from .models import (
     EmailAttachment,
     EmailRecipient,
     EmailSearchRequest,
+    EmailThread,
     SpamStatus,
 )
 
@@ -31,7 +32,9 @@ class EmailRetrievalService:
         """Get paginated list of emails with search and sorting."""
 
         query = select(Email).options(
-            selectinload(Email.recipients), selectinload(Email.attachments)
+            selectinload(Email.recipients),
+            selectinload(Email.attachments),
+            joinedload(Email.thread),
         )
 
         if search_params:
@@ -68,6 +71,7 @@ class EmailRetrievalService:
                 selectinload(Email.attachments),
                 selectinload(Email.headers),
                 joinedload(Email.raw_email_entry),
+                joinedload(Email.thread),
             )
             .where(Email.id == email_id)
         )
@@ -78,14 +82,52 @@ class EmailRetrievalService:
     async def get_email_thread(self, email_id: int) -> List[Email]:
         """Get complete email thread for a given email ID."""
         email = await self.get_email_by_id(email_id)
-        if not email:
-            return []
 
-        root_email = await self._find_root_email(email)
+        thread_emails_query = (
+            select(Email)
+            .options(
+                selectinload(Email.recipients),
+                selectinload(Email.attachments),
+                selectinload(Email.headers),
+                joinedload(Email.thread),
+            )
+            .where(Email.thread_id == email.thread_id)
+            .order_by(Email.thread_position, Email.sent_at)
+        )
 
-        thread_emails = await self._get_thread_emails(root_email.id)
+        result = await self.db.execute(thread_emails_query)
+        return list(result.scalars().all())
 
-        return thread_emails
+    async def get_thread_by_id(self, thread_id: int) -> Optional[EmailThread]:
+        """Get thread by ID with all emails."""
+        query = (
+            select(EmailThread)
+            .options(
+                selectinload(EmailThread.emails).selectinload(Email.recipients),
+                selectinload(EmailThread.emails).selectinload(Email.attachments),
+                selectinload(EmailThread.emails).selectinload(Email.headers),
+            )
+            .where(EmailThread.id == thread_id)
+        )
+
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_emails_by_thread_id(self, thread_id: int) -> List[Email]:
+        """Get all emails in a specific thread ordered by position."""
+        query = (
+            select(Email)
+            .options(
+                selectinload(Email.recipients),
+                selectinload(Email.attachments),
+                selectinload(Email.headers),
+            )
+            .where(Email.thread_id == thread_id)
+            .order_by(Email.thread_position, Email.sent_at)
+        )
+
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
 
     async def _find_root_email(self, email: Email) -> Email:
         """Find the root email of a thread."""
@@ -229,6 +271,7 @@ class EmailRetrievalService:
             .filter(Email.spam_status == SpamStatus.YES)
             .label("spam_emails"),
             func.count(func.distinct(Email.from_email)).label("unique_senders"),
+            func.count(func.distinct(Email.thread_id)).label("total_threads"),
         )
 
         result = await self.db.execute(stats_query)
@@ -239,6 +282,7 @@ class EmailRetrievalService:
             "non_spam_emails": row.non_spam_emails,
             "spam_emails": row.spam_emails,
             "unique_senders": row.unique_senders,
+            "total_threads": row.total_threads or 0,
         }
 
     async def get_recent_emails(self, limit: int = 10) -> List[Email]:

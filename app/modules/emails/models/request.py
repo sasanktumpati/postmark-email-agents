@@ -126,3 +126,69 @@ class EmailListRequest(BaseModel):
         if v not in allowed_fields:
             raise ValueError(f"sort_by must be one of: {', '.join(allowed_fields)}")
         return v
+
+
+class EmailThreadRequest(BaseModel):
+    """Request model for creating or updating email threads."""
+
+    thread_id: Optional[str] = Field(None, description="Unique thread identifier")
+    subject: Optional[str] = Field(None, description="Thread subject")
+    thread_summary: Optional[str] = Field(None, description="Summary of the thread")
+
+
+class EmailThreadSearchRequest(BaseModel):
+    """Request model for searching email threads."""
+
+    query: Optional[str] = Field(
+        None, description="Search in thread subject and summary"
+    )
+    subject: Optional[str] = Field(
+        None, description="Filter by thread subject (partial match)"
+    )
+    thread_summary: Optional[str] = Field(
+        None, description="Filter by thread summary (partial match)"
+    )
+    min_email_count: Optional[int] = Field(
+        None, ge=1, description="Minimum number of emails in thread"
+    )
+    max_email_count: Optional[int] = Field(
+        None, ge=1, description="Maximum number of emails in thread"
+    )
+    date_from: Optional[str] = Field(
+        None, description="Filter threads created from this date (ISO format)"
+    )
+    date_to: Optional[str] = Field(
+        None, description="Filter threads created until this date (ISO format)"
+    )
+    updated_from: Optional[str] = Field(
+        None, description="Filter threads updated from this date (ISO format)"
+    )
+    updated_to: Optional[str] = Field(
+        None, description="Filter threads updated until this date (ISO format)"
+    )
+
+
+class EmailThreadListRequest(BaseModel):
+    """Request model for listing email threads with pagination."""
+
+    page: int = Field(1, ge=1, description="Page number (1-based)")
+    limit: int = Field(20, ge=1, le=100, description="Number of items per page")
+    search: Optional[EmailThreadSearchRequest] = Field(
+        None, description="Thread search parameters"
+    )
+    sort_by: str = Field("updated_at", description="Sort field")
+    sort_order: str = Field("desc", pattern="^(asc|desc)$", description="Sort order")
+
+    @field_validator("sort_by")
+    @classmethod
+    def validate_sort_by(cls, v):
+        allowed_fields = [
+            "created_at",
+            "updated_at",
+            "subject",
+            "email_count",
+            "thread_id",
+        ]
+        if v not in allowed_fields:
+            raise ValueError(f"sort_by must be one of: {', '.join(allowed_fields)}")
+        return v

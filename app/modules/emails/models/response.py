@@ -121,3 +121,54 @@ class WebhookProcessingResponse(BaseModel):
     attachments_count: Optional[int] = Field(
         None, description="Number of attachments processed"
     )
+
+
+class EmailThreadListItemResponse(BaseModel):
+    """Response model for email thread list items."""
+
+    id: int
+    thread_id: str
+    subject: Optional[str] = None
+    thread_summary: Optional[str] = None
+    email_count: int
+    created_at: datetime
+    updated_at: datetime
+    first_email_sent_at: Optional[datetime] = None
+    last_email_sent_at: Optional[datetime] = None
+    participants: List[str] = Field(
+        default_factory=list, description="Email addresses of participants"
+    )
+    has_attachments: bool = False
+    total_attachments: int = 0
+
+
+class EmailThreadDetailResponse(BaseModel):
+    """Response model for detailed email thread information."""
+
+    id: int
+    thread_id: str
+    subject: Optional[str] = None
+    thread_summary: Optional[str] = None
+    email_count: int
+    created_at: datetime
+    updated_at: datetime
+    emails: List[EmailDetailResponse] = Field(default_factory=list)
+    participants: List[str] = Field(
+        default_factory=list, description="Email addresses of participants"
+    )
+    thread_depth: int = Field(description="Number of levels in the thread")
+    has_attachments: bool = False
+    total_attachments: int = 0
+
+
+class EmailThreadStatsResponse(BaseModel):
+    """Response model for email thread statistics."""
+
+    total_threads: int
+    threads_with_single_email: int
+    threads_with_multiple_emails: int
+    average_emails_per_thread: float
+    threads_with_attachments: int
+    most_active_thread_id: Optional[str] = None
+    most_active_thread_email_count: int = 0
+    last_updated: Optional[datetime] = Field(default_factory=datetime.now)

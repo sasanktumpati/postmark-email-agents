@@ -23,6 +23,7 @@ from .models import (
     RecipientType,
     SpamStatus,
 )
+from .thread_service import EmailThreadService
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class WebhookProcessingService:
         self.db = db_session
         self.attachments_dir = Path(attachments_dir or "attachments")
         self.attachments_dir.mkdir(exist_ok=True)
+        self.thread_service = EmailThreadService(db_session)
 
     def _encode_to_base64(self, data: str) -> str:
         """Encode string data to base64."""
@@ -362,7 +364,10 @@ class WebhookProcessingService:
             self.db.add(email)
             await self.db.flush()
 
-            await self.save_recipients(email_data, email.id)
+            recipients = await self.save_recipients(email_data, email.id)
+
+            await self._assign_email_to_thread(email, email_data, recipients)
+
             await self.save_attachments(email_data.Attachments or [], email.id)
             await self.save_headers(email_data.Headers, email.id)
 
@@ -375,6 +380,64 @@ class WebhookProcessingService:
         except Exception as e:
             await self.db.rollback()
             raise Exception(f"Failed to process webhook email: {str(e)}")
+
+    async def _assign_email_to_thread(
+        self,
+        email: Email,
+        email_data: PostmarkWebhookRequest,
+        recipients: List[EmailRecipient],
+    ) -> None:
+        """Assign email to a thread (create new or use existing)."""
+        try:
+            participants = []
+
+            participants.append(email_data.From)
+
+            for recipient in recipients:
+                if recipient.recipient_type in [RecipientType.TO, RecipientType.CC]:
+                    participants.append(recipient.email_address)
+
+            participants = sorted(list(set(participants)))
+
+            thread_summary = self._generate_thread_summary(email_data)
+
+            thread = await self.thread_service.create_or_get_thread(
+                subject=email_data.Subject or "",
+                participants=participants,
+                thread_summary=thread_summary,
+            )
+
+            await self.thread_service.add_email_to_thread(email, thread)
+
+        except Exception as e:
+            logger.error(f"Failed to assign email to thread: {str(e)}")
+
+            pass
+
+    def _generate_thread_summary(self, email_data: PostmarkWebhookRequest) -> str:
+        """Generate a summary for the email thread."""
+        subject = email_data.Subject or "No subject"
+        sender = email_data.FromName or email_data.From
+
+        summary = f"Email thread: {subject}"
+
+        if email_data.TextBody:
+            text_preview = email_data.TextBody.strip()[:200]
+            if len(text_preview) == 200:
+                text_preview += "..."
+            summary += f"\n\nPreview: {text_preview}"
+        elif email_data.StrippedTextReply:
+            text_preview = email_data.StrippedTextReply.strip()[:200]
+            if len(text_preview) == 200:
+                text_preview += "..."
+            summary += f"\n\nPreview: {text_preview}"
+
+        summary += f"\n\nStarted by: {sender}"
+
+        if email_data.Attachments:
+            summary += f"\n\nAttachments: {len(email_data.Attachments)} file(s)"
+
+        return summary
 
     async def process_postmark_webhook(self, raw_data: Dict) -> Dict[str, str]:
         """Main entry point for processing Postmark webhook data."""

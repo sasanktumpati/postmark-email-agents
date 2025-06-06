@@ -42,6 +42,56 @@ class SpamStatus(enum.Enum):
     UNKNOWN = "unknown"
 
 
+class EmailThread(Base):
+    """Model for email threads to organize related emails."""
+
+    __tablename__ = "email_threads"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    thread_id = Column(String(255), unique=True, index=True, nullable=False)
+    subject = Column(String(998), nullable=True, index=True)
+    thread_summary = Column(Text, nullable=True, comment="Summary of the email thread")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    email_count = Column(Integer, default=0, nullable=False)
+    first_email_id = Column(
+        Integer,
+        ForeignKey("emails.id"),
+        nullable=True,
+        comment="Reference to the first email in thread",
+    )
+    last_email_id = Column(
+        Integer,
+        ForeignKey("emails.id"),
+        nullable=True,
+        comment="Reference to the last email in thread",
+    )
+
+    emails = relationship(
+        "Email",
+        back_populates="thread",
+        foreign_keys="Email.thread_id",
+        cascade="all, delete-orphan",
+    )
+    first_email = relationship(
+        "Email",
+        foreign_keys=[first_email_id],
+        post_update=True,
+    )
+    last_email = relationship(
+        "Email",
+        foreign_keys=[last_email_id],
+        post_update=True,
+    )
+
+    __table_args__ = (
+        Index("idx_thread_subject_created", "subject", "created_at"),
+        Index("idx_thread_updated", "updated_at"),
+    )
+
+
 class RawEmail(Base):
     """Model for storing raw email data received from webhooks."""
 
@@ -64,6 +114,13 @@ class Email(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     raw_email_id = Column(Integer, ForeignKey("emails_raw.id"), nullable=False)
+    thread_id = Column(
+        Integer,
+        ForeignKey("email_threads.id"),
+        nullable=True,
+        index=True,
+        comment="Reference to the email thread",
+    )
 
     message_id = Column(String(255), unique=True, index=True, nullable=False)
     message_stream = Column(String(100), nullable=True)
@@ -89,7 +146,7 @@ class Email(Base):
         ForeignKey("emails.id"),
         nullable=True,
         index=True,
-        comment="Self-referencing parent email link",
+        comment="Legacy parent email link (kept for migration)",
     )
     parent_email_identifier = Column(
         Text,
@@ -105,6 +162,10 @@ class Email(Base):
         comment="Email Identifier : X-Microsoft-Original-Message-ID or X-Gmail-Original-Message-ID Headers",
     )
 
+    thread_position = Column(
+        Integer, default=0, nullable=False, comment="Position of email in thread"
+    )
+
     spam_score = Column(Float, nullable=True, index=True)
     spam_status = Column(
         Enum(SpamStatus),
@@ -113,10 +174,14 @@ class Email(Base):
         index=True,
     )
 
-    # Relationships
     raw_email_entry = relationship(
         "RawEmail",
         backref="parsed_email",
+    )
+    thread = relationship(
+        "EmailThread",
+        back_populates="emails",
+        foreign_keys=[thread_id],
     )
     recipients = relationship(
         "EmailRecipient",
@@ -146,6 +211,7 @@ class Email(Base):
         Index("idx_email_mailbox_sent", "mailbox_hash", "sent_at"),
         Index("idx_email_original_recipient_sent", "original_recipient", "sent_at"),
         Index("idx_email_reply_to_sent", "reply_to", "sent_at"),
+        Index("idx_email_thread_position", "thread_id", "thread_position"),
     )
 
 

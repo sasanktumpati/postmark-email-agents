@@ -3,6 +3,7 @@ from .db import (
     EmailAttachment,
     EmailHeader,
     EmailRecipient,
+    EmailThread,
     ProcessingStatus,
     RawEmail,
     RecipientType,
@@ -15,6 +16,9 @@ from .request import (
     EmailRecipientInfo,
     EmailSearchRequest,
     EmailSender,
+    EmailThreadListRequest,
+    EmailThreadRequest,
+    EmailThreadSearchRequest,
     PostmarkWebhookRequest,
 )
 from .response import (
@@ -24,7 +28,10 @@ from .response import (
     EmailListItemResponse,
     EmailRecipientResponse,
     EmailStatsResponse,
+    EmailThreadDetailResponse,
+    EmailThreadListItemResponse,
     EmailThreadResponse,
+    EmailThreadStatsResponse,
     WebhookProcessingResponse,
 )
 
@@ -33,6 +40,7 @@ __all__ = [
     "EmailAttachment",
     "EmailHeader",
     "EmailRecipient",
+    "EmailThread",
     "ProcessingStatus",
     "RecipientType",
     "RawEmail",
@@ -43,6 +51,9 @@ __all__ = [
     "EmailRecipientInfo",
     "EmailSearchRequest",
     "EmailSender",
+    "EmailThreadListRequest",
+    "EmailThreadRequest",
+    "EmailThreadSearchRequest",
     "PostmarkWebhookRequest",
     "EmailAttachmentResponse",
     "EmailDetailResponse",
@@ -50,6 +61,9 @@ __all__ = [
     "EmailListItemResponse",
     "EmailRecipientResponse",
     "EmailStatsResponse",
+    "EmailThreadDetailResponse",
+    "EmailThreadListItemResponse",
     "EmailThreadResponse",
+    "EmailThreadStatsResponse",
     "WebhookProcessingResponse",
 ]
