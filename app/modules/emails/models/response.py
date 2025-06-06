@@ -1,8 +1,7 @@
-import base64
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field
 
 
 class EmailRecipientResponse(BaseModel):
@@ -57,16 +56,6 @@ class EmailListItemResponse(BaseModel):
     attachment_count: int = 0
     recipient_count: int = 0
 
-    @field_validator("stripped_text_body", mode="before")
-    @classmethod
-    def decode_stripped_text_body(cls, v):
-        if v and isinstance(v, str):
-            try:
-                return base64.b64decode(v).decode("utf-8")
-            except Exception:
-                return v
-        return v
-
 
 class EmailDetailResponse(BaseModel):
     """Response model for detailed email information."""
@@ -95,16 +84,6 @@ class EmailDetailResponse(BaseModel):
     recipients: List[EmailRecipientResponse] = Field(default_factory=list)
     attachments: List[EmailAttachmentResponse] = Field(default_factory=list)
     headers: List[EmailHeaderResponse] = Field(default_factory=list)
-
-    @field_validator("text_body", "html_body", "stripped_text_body", mode="before")
-    @classmethod
-    def decode_body_fields(cls, v):
-        if v and isinstance(v, str):
-            try:
-                return base64.b64decode(v).decode("utf-8")
-            except Exception:
-                return v
-        return v
 
 
 class EmailThreadResponse(BaseModel):

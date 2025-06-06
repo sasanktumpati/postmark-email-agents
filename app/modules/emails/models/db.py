@@ -72,11 +72,9 @@ class Email(Base):
     from_name = Column(String(255), nullable=True)
 
     subject = Column(String(998), nullable=True, index=True)
-    text_body = Column(Text, nullable=True, comment="Base64 encoded text body")
-    html_body = Column(Text, nullable=True, comment="Base64 encoded HTML body")
-    stripped_text_reply = Column(
-        Text, nullable=True, comment="Base64 encoded stripped text reply"
-    )
+    text_body = Column(Text, nullable=True, comment="Plain text body")
+    html_body = Column(Text, nullable=True, comment="HTML body")
+    stripped_text_reply = Column(Text, nullable=True, comment="Stripped text reply")
 
     sent_at = Column(DateTime(timezone=True), nullable=True, index=True)
     processed_at = Column(DateTime(timezone=True), server_default=func.now())

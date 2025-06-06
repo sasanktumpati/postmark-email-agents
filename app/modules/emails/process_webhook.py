@@ -333,21 +333,9 @@ class WebhookProcessingService:
             sent_at = self.parse_date(email_data.Date)
             parent_email_id = await self.get_parent_email_id(parent_identifier)
 
-            text_body_b64 = (
-                self._encode_to_base64(email_data.TextBody)
-                if email_data.TextBody
-                else None
-            )
-            html_body_b64 = (
-                self._encode_to_base64(email_data.HtmlBody)
-                if email_data.HtmlBody
-                else None
-            )
-            stripped_text_reply_b64 = (
-                self._encode_to_base64(email_data.StrippedTextReply)
-                if email_data.StrippedTextReply
-                else None
-            )
+            text_body = email_data.TextBody
+            html_body = email_data.HtmlBody
+            stripped_text_reply = email_data.StrippedTextReply
 
             email = Email(
                 raw_email_id=raw_email.id,
@@ -356,9 +344,9 @@ class WebhookProcessingService:
                 from_email=email_data.From,
                 from_name=email_data.FromName,
                 subject=email_data.Subject,
-                text_body=text_body_b64,
-                html_body=html_body_b64,
-                stripped_text_reply=stripped_text_reply_b64,
+                text_body=text_body,
+                html_body=html_body,
+                stripped_text_reply=stripped_text_reply,
                 sent_at=sent_at,
                 mailbox_hash=email_data.MailboxHash,
                 tag=email_data.Tag,
