@@ -81,11 +81,18 @@ class Email(Base):
     original_recipient = Column(String(320), nullable=True)
     reply_to = Column(String(320), nullable=True)
 
+    parent_email_id = Column(
+        Integer,
+        ForeignKey("emails.id"),
+        nullable=True,
+        index=True,
+        comment="Self-referencing parent email link",
+    )
     parent_email_identifier = Column(
         Text,
         nullable=True,
         index=True,
-        comment="Parent Email Identifier : In-Reply-To or References Headers ",
+        comment="Parent Email Identifier : In-Reply-To or References Headers",
     )
     email_identifier = Column(
         String(255),
@@ -121,6 +128,12 @@ class Email(Base):
         "EmailHeader",
         back_populates="email",
         cascade="all, delete-orphan",
+    )
+    parent_email = relationship(
+        "Email",
+        remote_side=[id],
+        backref="child_emails",
+        foreign_keys=[parent_email_id],
     )
 
     __table_args__ = (

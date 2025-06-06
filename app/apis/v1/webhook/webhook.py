@@ -41,7 +41,7 @@ class HealthCheckResult(BaseModel):
     version: Optional[str] = Field(None, description="Service version")
 
 
-router = APIRouter(prefix="/webhook", tags=["webhook"])
+router: APIRouter = APIRouter(prefix="/webhook", tags=["webhook"])
 
 
 @router.post(

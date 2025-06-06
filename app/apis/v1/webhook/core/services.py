@@ -59,11 +59,13 @@ class EmailWebhookService:
                 "x-microsoft-original-message-id",
                 "x-gmail-original-message-id",
             ]:
-                return header.Value
+                if header.Value:
+                    return header.Value.strip()
 
         for header in headers:
             if header.Name.lower() == "message-id":
-                return header.Value
+                if header.Value:
+                    return header.Value.strip()
 
         return f"generated-{uuid.uuid4()}"
 
@@ -74,9 +76,8 @@ class EmailWebhookService:
         for header in headers:
             name = header.Name.lower()
             if name in ["in-reply-to", "references"]:
-                value = header.Value.strip()
-                if value:
-                    return value
+                if header.Value:
+                    return header.Value.strip()
         return None
 
     def parse_spam_status(
@@ -92,18 +93,14 @@ class EmailWebhookService:
 
             if "spam" in name and "score" in name:
                 try:
-                    import re
-
-                    score_match = re.search(r"[-+]?\d*\.?\d+", value)
-                    if score_match:
-                        spam_score = float(score_match.group())
-                except (ValueError, AttributeError):
+                    spam_score = float(value)
+                except Exception:
                     pass
 
             if "spam" in name and "status" in name:
-                if "yes" in value.lower():
+                if value.lower() == "yes":
                     spam_status = SpamStatusEnum.YES
-                elif "no" in value.lower():
+                elif value.lower() == "no":
                     spam_status = SpamStatusEnum.NO
 
         return spam_score, spam_status
@@ -113,14 +110,15 @@ class EmailWebhookService:
     ) -> List[EmailAttachment]:
         """Save email attachments to filesystem and database."""
         saved_attachments = []
-
         email_dir = self.attachments_dir / str(email_id)
-        email_dir.mkdir(exist_ok=True)
-
+        try:
+            email_dir.mkdir(exist_ok=True)
+        except Exception as e:
+            logging.error(f"Failed to create directory for attachments: {str(e)}")
+            return saved_attachments
         for attachment in attachments:
             try:
                 content_bytes = base64.b64decode(attachment.Content)
-
                 file_extension = ""
                 if attachment.Name and "." in attachment.Name:
                     file_extension = Path(attachment.Name).suffix
@@ -137,7 +135,6 @@ class EmailWebhookService:
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
                     }
                     file_extension = content_type_map.get(attachment.ContentType)
-
                     if file_extension is None:
                         guessed_extension = mimetypes.guess_extension(
                             attachment.ContentType
@@ -149,21 +146,23 @@ class EmailWebhookService:
                                 f"Could not determine file extension for ContentType: {attachment.ContentType}, using no extension."
                             )
                             file_extension = ""
-
                 else:
                     logging.warning(
                         "Attachment has no name and no ContentType, saving without extension."
                     )
                     file_extension = ""
-
                 unique_filename = (
                     f"{uuid.uuid4().hex}_{Path(attachment.Name).stem}{file_extension}"
                 )
                 file_path = email_dir / unique_filename
-
-                with open(file_path, "wb") as f:
-                    f.write(content_bytes)
-
+                try:
+                    with open(file_path, "wb") as f:
+                        f.write(content_bytes)
+                except Exception as e:
+                    logging.error(
+                        f"Failed to write attachment file {file_path}: {str(e)}"
+                    )
+                    continue
                 db_attachment = EmailAttachment(
                     email_id=email_id,
                     filename=attachment.Name,
@@ -173,15 +172,17 @@ class EmailWebhookService:
                     file_path=str(file_path),
                     file_url=f"/attachments/{email_id}/{unique_filename}",
                 )
-
-                self.db.add(db_attachment)
-                saved_attachments.append(db_attachment)
-
+                try:
+                    self.db.add(db_attachment)
+                    saved_attachments.append(db_attachment)
+                except Exception as e:
+                    logging.error(f"Failed to add attachment to db: {str(e)}")
+                    continue
             except Exception as e:
-                print(f"Failed to save attachment {attachment.Name}: {str(e)}")
-
+                logging.error(
+                    f"Failed to save attachment {getattr(attachment, 'Name', 'unknown')}: {str(e)}"
+                )
                 continue
-
         return saved_attachments
 
     async def save_recipients(
@@ -261,6 +262,20 @@ class EmailWebhookService:
         except Exception:
             return datetime.now(datetime.timezone.utc)
 
+    async def get_parent_email_id(
+        self, parent_identifier: Optional[str]
+    ) -> Optional[int]:
+        """Find the parent email's id by its email_identifier."""
+        if not parent_identifier:
+            return None
+        from sqlalchemy import select
+
+        result = await self.db.execute(
+            select(Email.id).where(Email.email_identifier == parent_identifier)
+        )
+        row = result.first()
+        return row[0] if row else None
+
     async def process_webhook_email(
         self, raw_email: EmailsRaw, email_data: PostmarkInboundEmail
     ) -> Email:
@@ -270,6 +285,8 @@ class EmailWebhookService:
             parent_identifier = self.extract_parent_email_identifier(email_data.Headers)
             spam_score, spam_status = self.parse_spam_status(email_data.Headers)
             sent_at = self.parse_date(email_data.Date)
+
+            parent_email_id = await self.get_parent_email_id(parent_identifier)
 
             email = Email(
                 raw_email_id=raw_email.id,
@@ -287,6 +304,7 @@ class EmailWebhookService:
                 original_recipient=email_data.OriginalRecipient,
                 reply_to=email_data.ReplyTo,
                 parent_email_identifier=parent_identifier,
+                parent_email_id=parent_email_id,
                 email_identifier=email_identifier,
                 spam_score=spam_score,
                 spam_status=spam_status,
@@ -294,47 +312,33 @@ class EmailWebhookService:
 
             self.db.add(email)
             await self.db.flush()
-            await self.db.refresh(email)
-
             await self.save_recipients(email_data, email.id)
-            await self.save_headers(email_data.Headers, email.id)
             await self.save_attachments(email_data.Attachments or [], email.id)
-
-            raw_email.processing_status = ProcessingStatusEnum.PROCESSED
-
+            await self.save_headers(email_data.Headers, email.id)
             await self.db.commit()
             await self.db.refresh(email)
             return email
-
         except Exception as e:
             await self.db.rollback()
-            raw_email.processing_status = ProcessingStatusEnum.FAILED
-            raw_email.error_message = str(e)
-            await self.db.commit()
-            raise Exception(f"Failed to process email: {str(e)}")
+            raise Exception(f"Failed to process webhook email: {str(e)}")
 
     async def process_postmark_webhook(self, raw_data: Dict) -> Dict[str, str]:
         """Process the Postmark webhook data."""
-
         raw_email = await self.save_raw_email(raw_data)
-
         try:
             email_data = self.validate_webhook_request(raw_data)
-
-            processed_email = await self.process_webhook_email(raw_email, email_data)
-
+            email = await self.process_webhook_email(raw_email, email_data)
             return {
-                "email_id": str(processed_email.id),
+                "email_id": str(email.id),
                 "raw_email_id": str(raw_email.id),
-                "message_id": processed_email.message_id,
-                "attachments_count": str(len(email_data.Attachments or [])),
+                "message_id": email.message_id,
+                "attachments_count": str(len(email.attachments)),
             }
-
         except Exception as e:
             raw_email.processing_status = ProcessingStatusEnum.FAILED
             raw_email.error_message = str(e)
             await self.db.commit()
-            raise Exception(f"Unexpected error processing webhook: {str(e)}")
+            raise
 
 
 async def get_email_service(db: AsyncSession) -> EmailWebhookService:
