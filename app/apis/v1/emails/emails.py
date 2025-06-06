@@ -1,3 +1,4 @@
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,23 +8,26 @@ from app.core.utils.response.response import (
     ErrorDetails,
     PaginatedResponse,
 )
-
-from .core.models import (
+from app.modules.emails import (
     EmailDetailResponse,
+    EmailHeaderResponse,
     EmailListRequest,
-    EmailListResponse,
+    EmailListItemResponse,
+    EmailRecipientResponse,
+    EmailAttachmentResponse,
+    EmailStatsResponse,
     EmailThreadResponse,
+    get_email_service,
 )
-from .core.repo import EmailRepository
 
 router = APIRouter(prefix="/emails", tags=["emails"])
 
 
 def _convert_email_to_list_response(
     email, attachment_count=0, recipient_count=0
-) -> EmailListResponse:
-    """Converts Email model to EmailListResponse."""
-    return EmailListResponse(
+) -> EmailListItemResponse:
+    """Convert Email model to EmailListItemResponse."""
+    return EmailListItemResponse(
         id=email.id,
         message_id=email.message_id,
         message_stream=email.message_stream,
@@ -49,11 +53,6 @@ def _convert_email_to_list_response(
 
 def _convert_email_to_detail_response(email) -> EmailDetailResponse:
     """Converts Email model to EmailDetailResponse."""
-    from .core.models import (
-        EmailAttachmentResponse,
-        EmailHeaderResponse,
-        EmailRecipientResponse,
-    )
 
     recipients = [
         EmailRecipientResponse(
@@ -120,7 +119,7 @@ def _convert_email_to_detail_response(email) -> EmailDetailResponse:
     )
 
 
-@router.post("/list", response_model=PaginatedResponse[EmailListResponse])
+@router.post("/list", response_model=PaginatedResponse[EmailListItemResponse])
 async def list_emails(
     request: EmailListRequest, db: AsyncSession = Depends(get_async_db)
 ):
@@ -134,9 +133,9 @@ async def list_emails(
     - **sort_order**: Sort order (asc, desc)
     """
     try:
-        repo = EmailRepository(db)
+        email_service = await get_email_service(db)
 
-        emails, total_count = await repo.get_emails_with_pagination(
+        emails, total_count = await email_service.get_emails_with_pagination(
             page=request.page,
             limit=request.limit,
             search_params=request.search,
@@ -176,8 +175,8 @@ async def get_email_details(email_id: int, db: AsyncSession = Depends(get_async_
     - **email_id**: ID of the email to retrieve
     """
     try:
-        repo = EmailRepository(db)
-        email = await repo.get_email_by_id(email_id)
+        email_service = await get_email_service(db)
+        email = await email_service.get_email_by_id(email_id)
 
         if not email:
             raise HTTPException(status_code=404, detail="Email not found")
@@ -209,8 +208,8 @@ async def get_email_thread(email_id: int, db: AsyncSession = Depends(get_async_d
     - **email_id**: ID of any email in the thread
     """
     try:
-        repo = EmailRepository(db)
-        thread_emails = await repo.get_email_thread(email_id)
+        email_service = await get_email_service(db)
+        thread_emails = await email_service.get_email_thread(email_id)
 
         if not thread_emails:
             raise HTTPException(status_code=404, detail="Email or thread not found")
@@ -254,7 +253,7 @@ async def get_email_thread(email_id: int, db: AsyncSession = Depends(get_async_d
         )
 
 
-@router.get("/stats/summary", response_model=BaseResponse[dict])
+@router.get("/stats/summary", response_model=BaseResponse[EmailStatsResponse])
 async def get_email_stats(db: AsyncSession = Depends(get_async_db)):
     """
     Get email statistics and summary information.
@@ -266,21 +265,66 @@ async def get_email_stats(db: AsyncSession = Depends(get_async_db)):
     - Unique senders count
     """
     try:
-        repo = EmailRepository(db)
-        stats = await repo.get_email_stats()
+        email_service = await get_email_service(db)
+        stats = await email_service.get_email_stats()
 
-        return BaseResponse.success(
-            message="Email statistics retrieved successfully", data=stats
+        stats_response = EmailStatsResponse(
+            total_emails=stats["total_emails"],
+            non_spam_emails=stats["non_spam_emails"],
+            spam_emails=stats["spam_emails"],
+            unique_senders=stats["unique_senders"],
         )
 
-    except Exception:
-        raise BaseResponse.error(
+        return BaseResponse.success(
+            message="Email statistics retrieved successfully", data=stats_response
+        )
+
+    except Exception as e:
+        error_response = BaseResponse.error(
             message="Failed to retrieve email statistics",
             status_code=500,
             data=ErrorDetails(
-                message="Internal Server Error",
                 error_code="INTERNAL_SERVER_ERROR",
                 error_type="RetrievalError",
-                details={"error": "Failed to retrieve email statistics"},
+                details={"error": str(e)},
+                suggestions="Please try again or contact support if the issue persists",
             ),
+        )
+        raise HTTPException(
+            status_code=error_response.status_code, detail=error_response.to_dict()
+        )
+
+
+@router.get("/recent/{limit}", response_model=BaseResponse[List[EmailListItemResponse]])
+async def get_recent_emails(limit: int = 10, db: AsyncSession = Depends(get_async_db)):
+    """
+    Get most recent emails.
+
+    - **limit**: Maximum number of emails to return (default: 10, max: 50)
+    """
+    try:
+        if limit > 50:
+            limit = 50
+
+        email_service = await get_email_service(db)
+        emails = await email_service.get_recent_emails(limit)
+
+        email_responses = []
+        for email in emails:
+            attachment_count = len(email.attachments) if email.attachments else 0
+            recipient_count = len(email.recipients) if email.recipients else 0
+
+            email_response = _convert_email_to_list_response(
+                email, attachment_count, recipient_count
+            )
+            email_responses.append(email_response)
+
+        return BaseResponse.success(
+            message=f"Retrieved {len(email_responses)} recent emails",
+            data=email_responses,
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to retrieve recent emails: {str(e)}"
         )

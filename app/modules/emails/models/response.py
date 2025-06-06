@@ -35,8 +35,8 @@ class EmailHeaderResponse(BaseModel):
     value: Optional[str] = None
 
 
-class EmailListResponse(BaseModel):
-    """Response model for email list."""
+class EmailListItemResponse(BaseModel):
+    """Response model for email list items."""
 
     id: int
     message_id: str
@@ -116,67 +116,29 @@ class EmailThreadResponse(BaseModel):
     thread_depth: int
 
 
-class EmailSearchParams(BaseModel):
-    """Search parameters for email queries."""
+class EmailStatsResponse(BaseModel):
+    """Response model for email statistics."""
 
-    query: Optional[str] = Field(
-        None, description="Search in subject, body, and sender"
+    total_emails: int
+    non_spam_emails: int
+    spam_emails: int
+    unique_senders: int
+    last_updated: Optional[datetime] = Field(default_factory=datetime.now)
+
+
+class WebhookProcessingResponse(BaseModel):
+    """Response model for webhook processing result."""
+
+    email_id: str = Field(..., description="Database ID of the processed email")
+    raw_email_id: str = Field(..., description="ID of the raw email data stored")
+    message_id: str = Field(..., description="Postmark MessageID")
+    processing_status: str = Field(..., description="Processing status")
+    is_duplicate: bool = Field(
+        default=False, description="Whether this was a duplicate email"
     )
-    from_email: Optional[str] = Field(None, description="Filter by sender email")
-    to_email: Optional[str] = Field(None, description="Filter by recipient email")
-    subject: Optional[str] = Field(
-        None, description="Filter by subject (partial match)"
+    processing_time_ms: Optional[float] = Field(
+        None, description="Time taken to process in milliseconds"
     )
-    mailbox_hash: Optional[str] = Field(None, description="Filter by mailbox hash")
-    tag: Optional[str] = Field(None, description="Filter by tag")
-    has_attachments: Optional[bool] = Field(
-        None, description="Filter emails with/without attachments"
+    attachments_count: Optional[int] = Field(
+        None, description="Number of attachments processed"
     )
-    date_from: Optional[datetime] = Field(
-        None, description="Filter emails from this date"
-    )
-    date_to: Optional[datetime] = Field(
-        None, description="Filter emails until this date"
-    )
-    spam_status: Optional[str] = Field(
-        None, description="Filter by spam status (yes, no, unknown)"
-    )
-
-    @field_validator("spam_status")
-    @classmethod
-    def validate_spam_status(cls, v):
-        if v is not None:
-            allowed_values = ["yes", "no", "unknown"]
-            if v.lower() not in allowed_values:
-                raise ValueError(
-                    f"spam_status must be one of: {', '.join(allowed_values)}"
-                )
-            return v.lower()
-        return v
-
-    message_stream: Optional[str] = Field(None, description="Filter by message stream")
-
-
-class EmailListRequest(BaseModel):
-    """Request model for listing emails with pagination."""
-
-    page: int = Field(1, ge=1, description="Page number (1-based)")
-    limit: int = Field(20, ge=1, le=100, description="Number of items per page")
-    search: Optional[EmailSearchParams] = Field(None, description="Search parameters")
-    sort_by: str = Field("sent_at", description="Sort field")
-    sort_order: str = Field("desc", pattern="^(asc|desc)$", description="Sort order")
-
-    @field_validator("sort_by")
-    @classmethod
-    def validate_sort_by(cls, v):
-        allowed_fields = [
-            "sent_at",
-            "processed_at",
-            "from_email",
-            "subject",
-            "spam_score",
-            "message_id",
-        ]
-        if v not in allowed_fields:
-            raise ValueError(f"sort_by must be one of: {', '.join(allowed_fields)}")
-        return v

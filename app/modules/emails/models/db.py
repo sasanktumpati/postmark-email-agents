@@ -17,7 +17,7 @@ from sqlalchemy.sql import func
 from app.core.db import Base
 
 
-class RecipientTypeEnum(enum.Enum):
+class RecipientType(enum.Enum):
     """Enum for recipient types in emails."""
 
     FROM = "from"
@@ -26,7 +26,7 @@ class RecipientTypeEnum(enum.Enum):
     BCC = "bcc"
 
 
-class ProcessingStatusEnum(enum.Enum):
+class ProcessingStatus(enum.Enum):
     """Enum for processing status of raw emails."""
 
     PENDING = "pending"
@@ -34,7 +34,7 @@ class ProcessingStatusEnum(enum.Enum):
     FAILED = "failed"
 
 
-class SpamStatusEnum(enum.Enum):
+class SpamStatus(enum.Enum):
     """Enum for spam status of emails."""
 
     YES = "yes"
@@ -42,20 +42,24 @@ class SpamStatusEnum(enum.Enum):
     UNKNOWN = "unknown"
 
 
-class EmailsRaw(Base):
+class RawEmail(Base):
+    """Model for storing raw email data received from webhooks."""
+
     __tablename__ = "emails_raw"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     raw_json = Column(Text, comment="Base64 encoded JSON data")
     processing_status = Column(
-        Enum(ProcessingStatusEnum), default=ProcessingStatusEnum.PENDING, index=True
+        Enum(ProcessingStatus), default=ProcessingStatus.PENDING, index=True
     )
     error_message = Column(Text, nullable=True)
     mailbox_hash = Column(String(100), nullable=True, index=True)
 
 
 class Email(Base):
+    """Model for processed email data."""
+
     __tablename__ = "emails"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -105,14 +109,15 @@ class Email(Base):
 
     spam_score = Column(Float, nullable=True, index=True)
     spam_status = Column(
-        Enum(SpamStatusEnum),
-        default=SpamStatusEnum.UNKNOWN,
+        Enum(SpamStatus),
+        default=SpamStatus.UNKNOWN,
         nullable=False,
         index=True,
     )
 
+    # Relationships
     raw_email_entry = relationship(
-        "EmailsRaw",
+        "RawEmail",
         backref="parsed_email",
     )
     recipients = relationship(
@@ -147,12 +152,14 @@ class Email(Base):
 
 
 class EmailRecipient(Base):
+    """Model for email recipients (to, cc, bcc, from)."""
+
     __tablename__ = "email_recipients"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     email_id = Column(Integer, ForeignKey("emails.id"), nullable=False, index=True)
 
-    recipient_type = Column(Enum(RecipientTypeEnum), index=True, nullable=False)
+    recipient_type = Column(Enum(RecipientType), index=True, nullable=False)
     email_address = Column(String(320), nullable=False, index=True)
     name = Column(String(255), nullable=True)
     mailbox_hash = Column(String(100), nullable=True)
@@ -161,6 +168,8 @@ class EmailRecipient(Base):
 
 
 class EmailAttachment(Base):
+    """Model for email attachments."""
+
     __tablename__ = "email_attachments"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -180,6 +189,8 @@ class EmailAttachment(Base):
 
 
 class EmailHeader(Base):
+    """Model for email headers."""
+
     __tablename__ = "email_headers"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)

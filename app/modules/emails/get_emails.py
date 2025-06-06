@@ -5,23 +5,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql import select
 
-from .db import Email, EmailAttachment, EmailRecipient
-from .models import EmailSearchParams
+from .models import (
+    Email,
+    EmailAttachment,
+    EmailRecipient,
+    EmailSearchRequest,
+    SpamStatus,
+)
 
 
-class EmailRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
+class EmailRetrievalService:
+    """Service for retrieving and searching emails."""
+
+    def __init__(self, db_session: AsyncSession):
+        self.db = db_session
 
     async def get_emails_with_pagination(
         self,
         page: int,
         limit: int,
-        search_params: Optional[EmailSearchParams] = None,
+        search_params: Optional[EmailSearchRequest] = None,
         sort_by: str = "sent_at",
         sort_order: str = "desc",
     ) -> Tuple[List[Email], int]:
-        """Gets paginated list of emails with search and sorting."""
+        """Get paginated list of emails with search and sorting."""
 
         query = select(Email).options(
             selectinload(Email.recipients), selectinload(Email.attachments)
@@ -34,7 +41,7 @@ class EmailRepository:
         if search_params:
             count_query = self._apply_search_filters(count_query, search_params)
 
-        total_result = await self.session.execute(count_query)
+        total_result = await self.db.execute(count_query)
         total_count = total_result.scalar()
 
         if hasattr(Email, sort_by):
@@ -47,13 +54,13 @@ class EmailRepository:
         offset = (page - 1) * limit
         query = query.offset(offset).limit(limit)
 
-        result = await self.session.execute(query)
+        result = await self.db.execute(query)
         emails = result.scalars().all()
 
         return list(emails), total_count
 
     async def get_email_by_id(self, email_id: int) -> Optional[Email]:
-        """Gets email by ID with all related data."""
+        """Get email by ID with all related data."""
         query = (
             select(Email)
             .options(
@@ -65,12 +72,11 @@ class EmailRepository:
             .where(Email.id == email_id)
         )
 
-        result = await self.session.execute(query)
+        result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
     async def get_email_thread(self, email_id: int) -> List[Email]:
-        """Gets complete email thread for a given email ID."""
-
+        """Get complete email thread for a given email ID."""
         email = await self.get_email_by_id(email_id)
         if not email:
             return []
@@ -82,12 +88,12 @@ class EmailRepository:
         return thread_emails
 
     async def _find_root_email(self, email: Email) -> Email:
-        """Finds the root email of a thread."""
+        """Find the root email of a thread."""
         current_email = email
 
         while current_email.parent_email_id:
             query = select(Email).where(Email.id == current_email.parent_email_id)
-            result = await self.session.execute(query)
+            result = await self.db.execute(query)
             parent = result.scalar_one_or_none()
             if not parent:
                 break
@@ -96,8 +102,7 @@ class EmailRepository:
         return current_email
 
     async def _get_thread_emails(self, root_email_id: int) -> List[Email]:
-        """Gets all emails in a thread starting from root email."""
-
+        """Get all emails in a thread starting from root email."""
         collected_ids = set()
         to_process = [root_email_id]
 
@@ -109,7 +114,7 @@ class EmailRepository:
             collected_ids.add(current_id)
 
             children_query = select(Email.id).where(Email.parent_email_id == current_id)
-            result = await self.session.execute(children_query)
+            result = await self.db.execute(children_query)
             child_ids = [row[0] for row in result.fetchall()]
             to_process.extend(child_ids)
 
@@ -127,11 +132,11 @@ class EmailRepository:
             .order_by(Email.sent_at)
         )
 
-        result = await self.session.execute(emails_query)
+        result = await self.db.execute(emails_query)
         return list(result.scalars().all())
 
-    def _apply_search_filters(self, query, search_params: EmailSearchParams):
-        """Applies search filters to query."""
+    def _apply_search_filters(self, query, search_params: EmailSearchRequest):
+        """Apply search filters to query."""
         conditions = []
 
         if search_params.query:
@@ -159,19 +164,33 @@ class EmailRepository:
             conditions.append(Email.message_stream == search_params.message_stream)
 
         if search_params.spam_status:
-            from .db import SpamStatusEnum
-
             try:
-                spam_enum = SpamStatusEnum(search_params.spam_status.lower())
+                spam_enum = SpamStatus(search_params.spam_status.lower())
                 conditions.append(Email.spam_status == spam_enum)
             except ValueError:
                 pass
 
         if search_params.date_from:
-            conditions.append(Email.sent_at >= search_params.date_from)
+            from datetime import datetime
+
+            try:
+                date_from = datetime.fromisoformat(
+                    search_params.date_from.replace("Z", "+00:00")
+                )
+                conditions.append(Email.sent_at >= date_from)
+            except ValueError:
+                pass
 
         if search_params.date_to:
-            conditions.append(Email.sent_at <= search_params.date_to)
+            from datetime import datetime
+
+            try:
+                date_to = datetime.fromisoformat(
+                    search_params.date_to.replace("Z", "+00:00")
+                )
+                conditions.append(Email.sent_at <= date_to)
+            except ValueError:
+                pass
 
         if search_params.to_email:
             recipient_subquery = select(EmailRecipient.email_id).where(
@@ -192,29 +211,27 @@ class EmailRepository:
         return query
 
     async def search_emails(
-        self, search_params: EmailSearchParams, page: int = 1, limit: int = 20
+        self, search_params: EmailSearchRequest, page: int = 1, limit: int = 20
     ) -> Tuple[List[Email], int]:
-        """Searches emails with advanced filters."""
+        """Search emails with advanced filters."""
         return await self.get_emails_with_pagination(
             page=page, limit=limit, search_params=search_params
         )
 
     async def get_email_stats(self) -> Dict[str, int]:
-        """Gets email statistics."""
-        from .db import SpamStatusEnum
-
+        """Get email statistics."""
         stats_query = select(
             func.count(Email.id).label("total_emails"),
             func.count(Email.id)
-            .filter(Email.spam_status == SpamStatusEnum.NO)
+            .filter(Email.spam_status == SpamStatus.NO)
             .label("non_spam_emails"),
             func.count(Email.id)
-            .filter(Email.spam_status == SpamStatusEnum.YES)
+            .filter(Email.spam_status == SpamStatus.YES)
             .label("spam_emails"),
             func.count(func.distinct(Email.from_email)).label("unique_senders"),
         )
 
-        result = await self.session.execute(stats_query)
+        result = await self.db.execute(stats_query)
         row = result.fetchone()
 
         return {
@@ -223,3 +240,63 @@ class EmailRepository:
             "spam_emails": row.spam_emails,
             "unique_senders": row.unique_senders,
         }
+
+    async def get_recent_emails(self, limit: int = 10) -> List[Email]:
+        """Get most recent emails."""
+        query = (
+            select(Email)
+            .options(selectinload(Email.recipients), selectinload(Email.attachments))
+            .order_by(desc(Email.processed_at))
+            .limit(limit)
+        )
+
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_emails_by_sender(
+        self, sender_email: str, limit: int = 50
+    ) -> List[Email]:
+        """Get emails from a specific sender."""
+        query = (
+            select(Email)
+            .options(selectinload(Email.recipients), selectinload(Email.attachments))
+            .where(Email.from_email.ilike(f"%{sender_email}%"))
+            .order_by(desc(Email.sent_at))
+            .limit(limit)
+        )
+
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_emails_with_attachments(
+        self, page: int = 1, limit: int = 20
+    ) -> Tuple[List[Email], int]:
+        """Get emails that have attachments."""
+        attachment_subquery = select(EmailAttachment.email_id).distinct()
+
+        query = (
+            select(Email)
+            .options(selectinload(Email.recipients), selectinload(Email.attachments))
+            .where(Email.id.in_(attachment_subquery))
+            .order_by(desc(Email.sent_at))
+        )
+
+        count_query = select(func.count(Email.id)).where(
+            Email.id.in_(attachment_subquery)
+        )
+
+        total_result = await self.db.execute(count_query)
+        total_count = total_result.scalar()
+
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+
+        result = await self.db.execute(query)
+        emails = result.scalars().all()
+
+        return list(emails), total_count
+
+
+async def get_email_service(db_session: AsyncSession) -> EmailRetrievalService:
+    """Factory function to create email retrieval service."""
+    return EmailRetrievalService(db_session)

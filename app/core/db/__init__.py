@@ -9,6 +9,6 @@ __all__ = [
 
 async def init_db_async():
     """Initialize the database by creating all tables (async version)."""
-    from app.apis.v1.webhook.core import db  # noqa: F401
+    from app.modules.emails.models import db  # noqa: F401
 
     await init_db()
