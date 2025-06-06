@@ -133,7 +133,7 @@ async def postmark_webhook(
         )
 
 
-@router.get("/webhook/health", response_model=BaseResponse[HealthCheckResult])
+@router.get("/health", response_model=BaseResponse[HealthCheckResult])
 async def webhook_health() -> BaseResponse[HealthCheckResult]:
     """Health check endpoint for the webhook service."""
     from datetime import datetime
