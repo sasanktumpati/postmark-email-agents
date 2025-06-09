@@ -30,6 +30,12 @@ class Settings:
 
         self.sql_echo: bool = os.getenv("SQL_ECHO", "false").lower() == "true"
 
+        # Gemini API configuration
+        self._gemini_api_key: str = os.getenv("GEMINI_API_KEY")
+        self.gemini_model_name: str = os.getenv(
+            "GEMINI_MODEL", "gemini-2.5-flash-preview-04-17"
+        )
+
         self._validate_config()
 
     def _validate_config(self) -> None:
@@ -72,6 +78,20 @@ class Settings:
         except ConfigurationError:
             return False
 
+    def validate_gemini_api_key(self) -> bool:
+        if not self._gemini_api_key:
+            raise ConfigurationError("GEMINI_API_KEY is not set")
+        return True
+
+    @property
+    def gemini_model(self) -> str:
+        return f"google-gla:{self.gemini_model_name}"
+
+    @property
+    def gemini_api_key(self) -> str:
+        self.validate_gemini_api_key()
+        return self._gemini_api_key
+
     @property
     def database_url(self) -> str:
         """Synchronous database URL for psycopg2"""
@@ -83,9 +103,20 @@ class Settings:
         return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
 
+def get_config() -> Settings:
+    """Get the global configuration settings."""
+    if settings is None:
+        raise ConfigurationError("Configuration is not properly initialized")
+    return settings
+
+
 try:
     settings = Settings()
 except ConfigurationError as e:
     print(f"Configuration Error: {e}")
     print("Please check your environment variables and try again.")
     settings = None
+
+
+if settings:
+    print(f"Debug mode is {'on' if settings.debug else 'off'}")

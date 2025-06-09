@@ -34,6 +34,15 @@ class ProcessingStatus(enum.Enum):
     FAILED = "failed"
 
 
+class ActionablesProcessingStatus(enum.Enum):
+    """Enum for actionables processing status of emails."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    PROCESSED = "processed"
+    FAILED = "failed"
+
+
 class SpamStatus(enum.Enum):
     """Enum for spam status of emails."""
 
@@ -172,6 +181,24 @@ class Email(Base):
         default=SpamStatus.UNKNOWN,
         nullable=False,
         index=True,
+    )
+
+    actionables_processing_status = Column(
+        Enum(ActionablesProcessingStatus),
+        default=ActionablesProcessingStatus.PENDING,
+        nullable=False,
+        index=True,
+        comment="Status of actionables processing for this email",
+    )
+    actionables_processed_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Timestamp when actionables processing was completed",
+    )
+    actionables_error_message = Column(
+        Text,
+        nullable=True,
+        comment="Error message if actionables processing failed",
     )
 
     raw_email_entry = relationship(

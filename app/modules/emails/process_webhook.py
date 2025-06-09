@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -439,6 +440,39 @@ class WebhookProcessingService:
 
         return summary
 
+    def _trigger_actionables_processing(self, email_id: int) -> None:
+        """
+        Trigger actionables processing in the background without blocking the webhook response.
+        This method creates a detached task that processes actionables asynchronously.
+        """
+        try:
+            from app.modules.actionables.actionables import (
+                get_email_thread_content,
+                process_actionables_detached,
+            )
+
+            async def process_actionables_wrapper():
+                try:
+                    email_thread_content = await get_email_thread_content(email_id)
+
+                    await process_actionables_detached(email_id, email_thread_content)
+
+                except Exception as e:
+                    logger.error(
+                        f"Error in actionables processing wrapper for email {email_id}: {str(e)}",
+                        exc_info=e,
+                    )
+
+            asyncio.create_task(process_actionables_wrapper())
+            logger.info(
+                f"Triggered background actionables processing for email_id: {email_id}"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to trigger actionables processing for email {email_id}: {str(e)}"
+            )
+
     async def process_postmark_webhook(self, raw_data: Dict) -> Dict[str, str]:
         """Main entry point for processing Postmark webhook data."""
         try:
@@ -481,6 +515,8 @@ class WebhookProcessingService:
             email = await self.process_webhook_email(raw_email, email_data)
 
             attachments_count = len(email_data.Attachments or [])
+
+            self._trigger_actionables_processing(email.id)
 
             return {
                 "email_id": str(email.id),

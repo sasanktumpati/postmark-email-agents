@@ -20,7 +20,7 @@ install-deps:
 db-start:
 	docker compose up -d postgres-db 
 	@echo "Waiting for databases to be ready..."
-	@sleep 10
+	@sleep 2
 	@echo "Databases started successfully"
 
 db-stop:
