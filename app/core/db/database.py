@@ -104,6 +104,51 @@ async def reset_sequences() -> None:
 async def init_db() -> None:
     """Initialize database tables and reset sequences"""
     async with async_engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+            DO $$ BEGIN
+                CREATE TYPE processingstatus AS ENUM ('pending', 'processed', 'failed');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+            DO $$ BEGIN
+                CREATE TYPE actionablesprocessingstatus AS ENUM ('pending', 'processing', 'processed', 'failed');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+            DO $$ BEGIN
+                CREATE TYPE spamstatus AS ENUM ('yes', 'no', 'unknown');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+            DO $$ BEGIN
+                CREATE TYPE recipienttype AS ENUM ('from', 'to', 'cc', 'bcc');
+            EXCEPTION
+                WHEN duplicate_object THEN null;
+            END $$;
+        """
+            )
+        )
+
         await conn.run_sync(Base.metadata.create_all)
 
     try:

@@ -110,7 +110,9 @@ class RawEmail(Base):
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     raw_json = Column(Text, comment="Base64 encoded JSON data")
     processing_status = Column(
-        Enum(ProcessingStatus), default=ProcessingStatus.PENDING, index=True
+        Enum(ProcessingStatus, create_type=False),
+        default=ProcessingStatus.PENDING,
+        index=True,
     )
     error_message = Column(Text, nullable=True)
     mailbox_hash = Column(String(100), nullable=True, index=True)
@@ -177,14 +179,14 @@ class Email(Base):
 
     spam_score = Column(Float, nullable=True, index=True)
     spam_status = Column(
-        Enum(SpamStatus),
+        Enum(SpamStatus, create_type=False),
         default=SpamStatus.UNKNOWN,
         nullable=False,
         index=True,
     )
 
     actionables_processing_status = Column(
-        Enum(ActionablesProcessingStatus),
+        Enum(ActionablesProcessingStatus, create_type=False),
         default=ActionablesProcessingStatus.PENDING,
         nullable=False,
         index=True,
@@ -249,8 +251,9 @@ class EmailRecipient(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     email_id = Column(Integer, ForeignKey("emails.id"), nullable=False, index=True)
-
-    recipient_type = Column(Enum(RecipientType), index=True, nullable=False)
+    recipient_type = Column(
+        Enum(RecipientType, create_type=False), index=True, nullable=False
+    )
     email_address = Column(String(320), nullable=False, index=True)
     name = Column(String(255), nullable=True)
     mailbox_hash = Column(String(100), nullable=True)
