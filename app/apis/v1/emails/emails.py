@@ -1,11 +1,13 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_async_db
+from app.core.db.database import get_db_session
 from app.core.dependencies import get_current_user
+from app.core.logger import get_logger
 from app.core.utils.response.response import (
     BaseResponse,
     ErrorDetails,
@@ -23,6 +25,8 @@ from app.modules.emails import (
     get_email_service,
 )
 from app.modules.users import User
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/emails", tags=["emails"])
 
@@ -162,7 +166,7 @@ async def list_emails(
 
         return PaginatedResponse.success(
             message="Emails retrieved successfully",
-            data=email_responses,
+            data=[response.model_dump(mode="json") for response in email_responses],
             page=request.page,
             limit=request.limit,
             total_items=total_count,
@@ -232,7 +236,7 @@ async def get_email_details(
 
         return BaseResponse.success(
             message="Email details retrieved successfully",
-            data=email_response,
+            data=email_response.model_dump(mode="json"),
         )
 
     except Exception as e:
@@ -301,7 +305,7 @@ async def get_email_thread(
                 "from_email": email.from_email,
                 "from_name": email.from_name,
                 "subject": email.subject,
-                "sent_at": email.sent_at,
+                "sent_at": email.sent_at.isoformat() if email.sent_at else None,
                 "parent_email_id": email.parent_email_id,
                 "thread_position": email.thread_position,
                 "depth": depth,
@@ -319,7 +323,7 @@ async def get_email_thread(
 
         return BaseResponse.success(
             message="Email thread retrieved successfully",
-            data=thread_response,
+            data=thread_response.model_dump(mode="json"),
         )
 
     except Exception as e:
@@ -357,7 +361,7 @@ async def get_email_stats(
 
         return BaseResponse.success(
             message="Email statistics retrieved successfully",
-            data=stats_response,
+            data=stats_response.model_dump(mode="json"),
         )
 
     except Exception as e:
@@ -376,7 +380,6 @@ async def get_email_stats(
 @router.get("/recent/{limit}", response_model=BaseResponse[List[EmailListItemResponse]])
 async def get_recent_emails(
     limit: int = 10,
-    db: AsyncSession = Depends(get_async_db),
     user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """
@@ -390,25 +393,27 @@ async def get_recent_emails(
                 message="Limit must be between 1 and 50", http_status_code=400
             )
 
-        email_service = await get_email_service(db)
-        emails = await email_service.get_recent_emails(user_id=user.id, limit=limit)
+        async with get_db_session() as db:
+            email_service = await get_email_service(db)
+            emails = await email_service.get_recent_emails(user_id=user.id, limit=limit)
 
-        email_responses = []
-        for email in emails:
-            attachment_count = len(email.attachments) if email.attachments else 0
-            recipient_count = len(email.recipients) if email.recipients else 0
+            email_responses = []
+            for email in emails:
+                attachment_count = len(email.attachments) if email.attachments else 0
+                recipient_count = len(email.recipients) if email.recipients else 0
 
-            email_response = _convert_email_to_list_response(
-                email, attachment_count, recipient_count
-            )
-            email_responses.append(email_response)
+                email_response = _convert_email_to_list_response(
+                    email, attachment_count, recipient_count
+                )
+                email_responses.append(email_response)
 
         return BaseResponse.success(
             message=f"Retrieved {len(email_responses)} recent emails",
-            data=email_responses,
+            data=[response.model_dump(mode="json") for response in email_responses],
         )
 
     except Exception as e:
+        logger.error(f"Recent emails endpoint error: {e}", exc_info=True)
         return BaseResponse.failure(
             message="Failed to retrieve recent emails",
             http_status_code=500,

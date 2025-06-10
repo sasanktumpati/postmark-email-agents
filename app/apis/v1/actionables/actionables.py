@@ -25,7 +25,7 @@ async def list_actionables(
         )
         return PaginatedResponse.success(
             message="Actionables retrieved successfully",
-            data=actionables,
+            data=[actionable.model_dump(mode="json") for actionable in actionables],
             page=request.page,
             limit=request.limit,
             total_items=total_count,

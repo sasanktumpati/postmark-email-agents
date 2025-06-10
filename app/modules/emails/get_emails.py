@@ -480,6 +480,10 @@ class EmailRetrievalService:
 
         query = (
             select(Email)
+            .options(
+                selectinload(Email.recipients),
+                selectinload(Email.attachments),
+            )
             .where(Email.user_id == user_id)
             .order_by(desc(Email.sent_at))
             .limit(limit)

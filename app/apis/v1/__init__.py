@@ -5,6 +5,7 @@ from app.core.logger import get_logger
 from .actionables import router as actionables_router
 from .emails import router as emails_router
 from .health import health
+from .users import router as users_router
 from .webhook import router as webhook_router
 
 logger = get_logger(__name__)
@@ -23,3 +24,6 @@ logger.info("Emails router included.")
 
 router.include_router(actionables_router, tags=["actionables"])
 logger.info("Actionables router included.")
+
+router.include_router(users_router, tags=["users"])
+logger.info("Users router included.")

@@ -179,7 +179,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         async with get_db_session() as session:
             try:
-                user = await user_repository.get(session, user_id)
+                user = await user_repository.get_by_id(session, user_id)
                 logger.debug(f"User {user_id} fetched from database.")
             except Exception as e:
                 logger.error(
