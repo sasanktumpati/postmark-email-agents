@@ -93,7 +93,6 @@ class SentEmail(Base):
         Index("ix_sent_emails_user_status", "user_id", "status"),
         Index("ix_sent_emails_user_created", "user_id", "created_at"),
         Index("ix_sent_emails_status_retry", "status", "retry_count"),
-        Index("ix_sent_emails_error_code", "error_code", "postmark_error_code"),
     )
 
     def __repr__(self) -> str:
