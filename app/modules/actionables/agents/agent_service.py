@@ -1,8 +1,8 @@
 import asyncio
-import logging
 from typing import Any, Dict
 
 from app.core.config import get_config
+from app.core.logger import get_logger
 from app.modules.actionables.agents.calendar_agent import (
     CalendarDependencies,
     calendar_agent,
@@ -16,7 +16,7 @@ from app.modules.actionables.agents.shopping_agent import (
     shopping_agent,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 config = get_config()
 
 

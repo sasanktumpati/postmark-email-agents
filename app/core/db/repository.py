@@ -1,14 +1,15 @@
-import logging
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 
 from sqlalchemy import and_, asc, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func, select
 
+from app.core.logger import get_logger
+
 from .database import Base
 
 ModelType = TypeVar("ModelType", bound=Base)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class Repository(Generic[ModelType]):
@@ -18,7 +19,7 @@ class Repository(Generic[ModelType]):
 
     def __init__(self, model_class: Type[ModelType]):
         self.model_class = model_class
-        self.logger = logging.getLogger(f"{__name__}.{self.model_class.__name__}")
+        self.logger = get_logger(f"{__name__}.{self.model_class.__name__}")
 
     async def create(self, session: AsyncSession, obj: ModelType) -> ModelType:
         """Create a new object in the database."""
@@ -35,6 +36,12 @@ class Repository(Generic[ModelType]):
         self, session: AsyncSession, objects: List[ModelType]
     ) -> List[ModelType]:
         """Create multiple objects in a single transaction."""
+        if not objects:
+            self.logger.warning(
+                f"No {self.model_class.__name__} objects provided for bulk creation."
+            )
+            return []
+
         self.logger.debug(
             f"Creating {len(objects)} new {self.model_class.__name__} objects."
         )
@@ -51,21 +58,44 @@ class Repository(Generic[ModelType]):
         self, session: AsyncSession, obj_id: int
     ) -> Optional[ModelType]:
         """Get object by ID."""
+        if obj_id <= 0:
+            self.logger.warning(
+                f"Invalid ID provided for {self.model_class.__name__}: {obj_id}"
+            )
+            return None
+
         query = select(self.model_class).where(self.model_class.id == obj_id)
         result = await session.execute(query)
-        return result.scalar_one_or_none()
+        obj = result.scalar_one_or_none()
+
+        if obj:
+            self.logger.debug(f"{self.model_class.__name__} with id {obj_id} found.")
+        else:
+            self.logger.debug(
+                f"{self.model_class.__name__} with id {obj_id} not found."
+            )
+
+        return obj
 
     async def update(self, session: AsyncSession, obj: ModelType) -> ModelType:
         """Update an existing object."""
+        self.logger.debug(f"Updating {self.model_class.__name__} with id {obj.id}.")
         session.add(obj)
         await session.flush()
         await session.refresh(obj)
+        self.logger.info(
+            f"Successfully updated {self.model_class.__name__} with id {obj.id}."
+        )
         return obj
 
     async def delete(self, session: AsyncSession, obj: ModelType) -> bool:
         """Delete an object."""
+        self.logger.debug(f"Deleting {self.model_class.__name__} with id {obj.id}.")
         await session.delete(obj)
         await session.flush()
+        self.logger.info(
+            f"Successfully deleted {self.model_class.__name__} with id {obj.id}."
+        )
         return True
 
     async def count(self, session: AsyncSession, **filters) -> int:
@@ -76,7 +106,11 @@ class Repository(Generic[ModelType]):
             if conditions:
                 query = query.where(and_(*conditions))
         result = await session.execute(query)
-        return result.scalar() or 0
+        count = result.scalar() or 0
+        self.logger.debug(
+            f"Counted {count} {self.model_class.__name__} objects with filters: {filters}"
+        )
+        return count
 
     async def exists(self, session: AsyncSession, **filters) -> bool:
         """Check if objects exist with optional filters."""
@@ -93,6 +127,10 @@ class Repository(Generic[ModelType]):
         **filters,
     ) -> List[ModelType]:
         """List objects with pagination and filtering."""
+        self.logger.debug(
+            f"Listing {self.model_class.__name__} objects with offset={offset}, limit={limit}"
+        )
+
         query = select(self.model_class)
 
         if filters:
@@ -110,7 +148,11 @@ class Repository(Generic[ModelType]):
         query = query.offset(offset).limit(limit)
 
         result = await session.execute(query)
-        return list(result.scalars().all())
+        objects = list(result.scalars().all())
+        self.logger.info(
+            f"Retrieved {len(objects)} {self.model_class.__name__} objects."
+        )
+        return objects
 
     def _build_filter_conditions(self, filters: Dict[str, Any]) -> List:
         """Build filter conditions from a dictionary of filters."""

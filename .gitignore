@@ -13,3 +13,5 @@ wheels/
 attachments/
 
 .env
+
+logs/

@@ -124,6 +124,7 @@ class Email(Base):
     __tablename__ = "emails"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     raw_email_id = Column(Integer, ForeignKey("emails_raw.id"), nullable=False)
     thread_id = Column(
         Integer,
@@ -207,6 +208,7 @@ class Email(Base):
         comment="Error message if actionables processing failed",
     )
 
+    user = relationship("User")
     raw_email_entry = relationship(
         "RawEmail",
         backref="parsed_email",
@@ -245,6 +247,7 @@ class Email(Base):
         Index("idx_email_original_recipient_sent", "original_recipient", "sent_at"),
         Index("idx_email_reply_to_sent", "reply_to", "sent_at"),
         Index("idx_email_thread_position", "thread_id", "thread_position"),
+        Index("idx_email_user_id", "user_id"),
     )
 
 

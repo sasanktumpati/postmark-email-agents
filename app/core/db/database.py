@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -12,10 +11,12 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
+from app.core.logger import get_logger
 
 load_dotenv()
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+logger.info("Initializing database engine and session factory.")
 
 
 async_engine: AsyncEngine = create_async_engine(
@@ -26,7 +27,6 @@ async_engine: AsyncEngine = create_async_engine(
     pool_recycle=settings.db_pool_recycle,
     echo=settings.sql_echo,
     future=True,
-    isolation_level="READ_COMMITTED",
 )
 
 AsyncSessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
@@ -36,6 +36,8 @@ AsyncSessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
+logger.info("Database engine and session factory initialized successfully.")
 
 
 class Base(DeclarativeBase):
@@ -48,7 +50,8 @@ async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Database session error, rolling back: {e}")
             await session.rollback()
             raise
         finally:
@@ -61,7 +64,8 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         try:
             yield session
-        except Exception:
+        except Exception as e:
+            logger.error(f"Database session error, rolling back: {e}")
             await session.rollback()
             raise
         finally:
@@ -90,10 +94,14 @@ async def get_db_transaction() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """Initialize database tables and reset sequences"""
+    logger.info("Creating database tables.")
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables created successfully.")
 
 
 async def close_db() -> None:
     """Close database connections"""
+    logger.info("Closing database connections.")
     await async_engine.dispose()
+    logger.info("Database connections closed.")

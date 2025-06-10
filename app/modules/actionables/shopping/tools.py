@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-import logging
 
 from pydantic_ai import RunContext
 
 from app.core.db.database import get_db_transaction
+from app.core.logger import get_logger
 from app.modules.actionables.shopping.db import Bill, Coupon
 from app.modules.actionables.shopping.models.request import (
     SaveBillModel,
@@ -11,7 +11,7 @@ from app.modules.actionables.shopping.models.request import (
 )
 from app.modules.actionables.shopping.repo import ShoppingRepository
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

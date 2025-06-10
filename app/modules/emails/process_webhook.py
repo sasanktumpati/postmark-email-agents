@@ -1,16 +1,16 @@
 import asyncio
 import base64
 import json
-import logging
 import mimetypes
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logger import get_logger
 from app.modules.users.users import (
     get_user_webhook_service,
 )
@@ -30,7 +30,7 @@ from .models import (
 )
 from .thread_service import EmailThreadService
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class WebhookProcessingService:
@@ -41,6 +41,7 @@ class WebhookProcessingService:
         self.attachments_dir = Path(attachments_dir or "attachments")
         self.attachments_dir.mkdir(exist_ok=True)
         self.thread_service = EmailThreadService(db_session)
+        logger.debug("WebhookProcessingService initialized.")
 
     def _encode_to_base64(self, data: str) -> str:
         """Encode string data to base64."""
@@ -79,9 +80,11 @@ class WebhookProcessingService:
             self.db.add(raw_email)
             await self.db.commit()
             await self.db.refresh(raw_email)
+            logger.info(f"Raw email saved with ID: {raw_email.id}")
             return raw_email
         except Exception as e:
             await self.db.rollback()
+            logger.error(f"Failed to save raw email: {str(e)}")
             raise Exception(f"Failed to save raw email: {str(e)}")
 
     def validate_webhook_request(self, data: Dict) -> PostmarkWebhookRequest:
@@ -89,6 +92,7 @@ class WebhookProcessingService:
         try:
             return PostmarkWebhookRequest(**data)
         except Exception as e:
+            logger.error(f"Invalid webhook data received: {str(e)}")
             raise ValueError(f"Invalid webhook data: {str(e)}")
 
     def extract_email_identifier(self, headers: List[EmailHeaderData]) -> str:
@@ -105,7 +109,11 @@ class WebhookProcessingService:
                 if header.Name.lower() == priority_header and header.Value:
                     return header.Value.strip()
 
-        return f"generated-{uuid.uuid4()}"
+        generated_id = f"generated-{uuid.uuid4()}"
+        logger.warning(
+            f"No standard email identifier found in headers, generated: {generated_id}"
+        )
+        return generated_id
 
     def extract_parent_email_identifier(
         self, headers: List[EmailHeaderData]
@@ -176,12 +184,21 @@ class WebhookProcessingService:
                 )
             )
         )
-        return result.scalar_one_or_none()
+        email = result.scalar_one_or_none()
+        if email:
+            logger.warning(
+                f"Duplicate email detected - message_id: {message_id}, email_identifier: {email_identifier}"
+            )
+        return email
 
     async def save_attachments(
         self, attachments: List[EmailAttachmentData], email_id: int
     ) -> List[EmailAttachment]:
         """Save email attachments to filesystem and database."""
+        if not attachments:
+            return []
+
+        logger.debug(f"Saving {len(attachments)} attachments for email {email_id}")
         saved_attachments = []
         email_dir = self.attachments_dir / str(email_id)
 
@@ -315,93 +332,81 @@ class WebhookProcessingService:
     async def save_headers(
         self, headers: List[EmailHeaderData], email_id: int
     ) -> List[EmailHeader]:
-        """Save email headers to database."""
-        db_headers = []
-
-        for header in headers:
-            db_header = EmailHeader(
+        """Save email headers to the database."""
+        db_headers = [
+            EmailHeader(
                 email_id=email_id,
                 name=header.Name,
                 value=header.Value,
             )
-            self.db.add(db_header)
-            db_headers.append(db_header)
-
+            for header in headers
+        ]
+        self.db.add_all(db_headers)
         return db_headers
 
     async def process_webhook_email(
-        self, raw_email: RawEmail, email_data: PostmarkWebhookRequest
+        self, raw_email: RawEmail, email_data: PostmarkWebhookRequest, user_id: int
     ) -> Email:
-        """Process the validated email data and save to database."""
-        try:
-            email_identifier = self.extract_email_identifier(email_data.Headers)
-            parent_identifier = self.extract_parent_email_identifier(email_data.Headers)
-            spam_score, spam_status = self.parse_spam_status(email_data.Headers)
-            sent_at = self.parse_date(email_data.Date)
-            parent_email_id = await self.get_parent_email_id(parent_identifier)
+        """Process the validated webhook data and save it as a structured email."""
+        logger.info(
+            f"Processing webhook email for user {user_id}, message_id: {email_data.MessageID}"
+        )
 
-            try:
-                user_service = get_user_webhook_service()
-                user, user_created = await user_service.process_user_from_webhook(
-                    email=email_data.From,
-                    mailbox_hash=email_data.MailboxHash or "",
-                    send_welcome=True,
-                )
+        email_identifier = self.extract_email_identifier(email_data.Headers)
+        parent_identifier = self.extract_parent_email_identifier(email_data.Headers)
+        parent_email_id = await self.get_parent_email_id(parent_identifier)
+        spam_score, spam_status = self.parse_spam_status(email_data.Headers)
 
-                logger.info(
-                    f"User processing completed: {'created' if user_created else 'updated'} user {user.id}"
-                )
-
-            except Exception as user_error:
-                logger.error(
-                    f"User processing failed for email {email_data.From}: {user_error}"
-                )
-
-            text_body = email_data.TextBody
-            html_body = email_data.HtmlBody
-            stripped_text_reply = email_data.StrippedTextReply
-
-            email = Email(
-                raw_email_id=raw_email.id,
-                message_id=email_data.MessageID,
-                message_stream=email_data.MessageStream,
-                from_email=email_data.From,
-                from_name=email_data.FromName,
-                subject=email_data.Subject,
-                text_body=text_body,
-                html_body=html_body,
-                stripped_text_reply=stripped_text_reply,
-                sent_at=sent_at,
-                mailbox_hash=email_data.MailboxHash,
-                tag=email_data.Tag,
-                original_recipient=email_data.OriginalRecipient,
-                reply_to=email_data.ReplyTo,
-                parent_email_identifier=parent_identifier,
-                parent_email_id=parent_email_id,
-                email_identifier=email_identifier,
-                spam_score=spam_score,
-                spam_status=spam_status,
+        existing_email = await self.check_duplicate_email(
+            email_data.MessageID, email_identifier
+        )
+        if existing_email:
+            logger.warning(
+                f"Duplicate email detected. MessageID: {email_data.MessageID}, Identifier: {email_identifier}"
             )
+            return existing_email
 
-            self.db.add(email)
-            await self.db.flush()
+        sent_at = self.parse_date(email_data.Date)
 
-            recipients = await self.save_recipients(email_data, email.id)
+        new_email = Email(
+            raw_email_id=raw_email.id,
+            user_id=user_id,
+            message_id=email_data.MessageID,
+            message_stream=email_data.MessageStream,
+            from_email=email_data.FromFull.Email,
+            from_name=email_data.FromFull.Name,
+            subject=email_data.Subject,
+            text_body=email_data.TextBody,
+            html_body=email_data.HtmlBody,
+            stripped_text_reply=email_data.StrippedTextReply,
+            sent_at=sent_at,
+            mailbox_hash=email_data.MailboxHash,
+            tag=email_data.Tag,
+            original_recipient=email_data.OriginalRecipient,
+            reply_to=email_data.ReplyTo,
+            parent_email_identifier=parent_identifier,
+            parent_email_id=parent_email_id,
+            email_identifier=email_identifier,
+            spam_score=spam_score,
+            spam_status=spam_status,
+        )
 
-            await self._assign_email_to_thread(email, email_data, recipients)
+        self.db.add(new_email)
+        await self.db.flush()
 
-            await self.save_attachments(email_data.Attachments or [], email.id)
-            await self.save_headers(email_data.Headers, email.id)
+        recipients = await self.save_recipients(email_data, new_email.id)
 
-            raw_email.processing_status = ProcessingStatus.PROCESSED
+        await self._assign_email_to_thread(new_email, email_data, recipients)
 
-            await self.db.commit()
-            await self.db.refresh(email)
-            return email
+        await self.save_attachments(email_data.Attachments or [], new_email.id)
+        await self.save_headers(email_data.Headers, new_email.id)
 
-        except Exception as e:
-            await self.db.rollback()
-            raise Exception(f"Failed to process webhook email: {str(e)}")
+        raw_email.processing_status = ProcessingStatus.PROCESSED
+
+        await self.db.commit()
+        await self.db.refresh(new_email)
+        logger.info(f"Successfully processed email {new_email.id} for user {user_id}")
+        return new_email
 
     async def _assign_email_to_thread(
         self,
@@ -495,61 +500,45 @@ class WebhookProcessingService:
             )
 
     async def process_postmark_webhook(self, raw_data: Dict) -> Dict[str, str]:
-        """Main entry point for processing Postmark webhook data."""
+        """High-level function to process an incoming Postmark webhook."""
+        logger.info("Processing incoming Postmark webhook")
+        raw_email = None
         try:
             email_data = self.validate_webhook_request(raw_data)
-        except Exception as e:
-            raise ValueError(f"Invalid webhook data: {str(e)}")
-
-        message_id = email_data.MessageID
-        email_identifier = self.extract_email_identifier(email_data.Headers)
-
-        existing_email = await self.check_duplicate_email(message_id, email_identifier)
-        if existing_email:
-            logger.info(
-                f"Duplicate email detected: message_id={message_id}, "
-                f"email_identifier={email_identifier}, existing_email_id={existing_email.id}"
+            user_service = get_user_webhook_service()
+            user, _ = await user_service.process_user_from_webhook(
+                email=email_data.OriginalRecipient,
+                mailbox_hash=email_data.MailboxHash,
             )
 
-            attachments_count_result = await self.db.execute(
-                select(func.count(EmailAttachment.id)).where(
-                    EmailAttachment.email_id == existing_email.id
-                )
+            if not user:
+                raise Exception("User could not be created or retrieved.")
+
+            raw_email = await self.save_raw_email(raw_data)
+
+            processed_email = await self.process_webhook_email(
+                raw_email, email_data, user.id
             )
-            attachments_count = attachments_count_result.scalar() or 0
 
-            return {
-                "email_id": str(existing_email.id),
-                "raw_email_id": str(existing_email.raw_email_id),
-                "message_id": existing_email.message_id,
-                "attachments_count": str(attachments_count),
-                "duplicate": "true",
-            }
-
-        logger.info(
-            f"Processing new email: message_id={message_id}, email_identifier={email_identifier}"
-        )
-
-        raw_email = await self.save_raw_email(raw_data)
-
-        try:
-            email = await self.process_webhook_email(raw_email, email_data)
+            await self.db.commit()
 
             attachments_count = len(email_data.Attachments or [])
 
-            self._trigger_actionables_processing(email.id)
+            self._trigger_actionables_processing(processed_email.id)
 
             return {
-                "email_id": str(email.id),
+                "email_id": str(processed_email.id),
                 "raw_email_id": str(raw_email.id),
-                "message_id": email.message_id,
+                "message_id": processed_email.message_id,
                 "attachments_count": str(attachments_count),
                 "duplicate": "false",
             }
         except Exception as e:
-            raw_email.processing_status = ProcessingStatus.FAILED
-            raw_email.error_message = str(e)
-            await self.db.commit()
+            logger.error(f"Error processing Postmark webhook: {str(e)}")
+            if raw_email:
+                raw_email.processing_status = ProcessingStatus.FAILED
+                raw_email.error_message = str(e)
+                await self.db.commit()
             raise
 
 

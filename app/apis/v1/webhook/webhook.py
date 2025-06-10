@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_config
 from app.core.db import get_async_db
 from app.core.utils.response import BaseResponse, ErrorDetails
 from app.modules.emails import (
@@ -13,6 +14,7 @@ from app.modules.emails import (
 )
 
 logger = logging.getLogger(__name__)
+settings = get_config()
 
 
 class HealthCheckResult:
@@ -35,25 +37,46 @@ router: APIRouter = APIRouter(prefix="/webhook", tags=["webhook"])
 async def postmark_webhook(
     request: Request, db: AsyncSession = Depends(get_async_db)
 ) -> JSONResponse:
-    """Process Postmark inbound email webhook."""
+    """
+    Process Postmark inbound email webhook.
+    """
     start_time = time.time()
 
     try:
-        raw_data = await request.json()
+        try:
+            raw_data = await request.json()
+        except Exception as e:
+            logger.error(f"Failed to parse webhook JSON: {e}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "Invalid JSON payload",
+                    "error_code": "INVALID_JSON",
+                },
+            )
 
         logger.info(
             f"Received Postmark webhook with MessageID: {raw_data.get('MessageID', 'unknown')}"
         )
 
-        # Get webhook processing service
+        required_fields = ["MessageID", "From", "To", "Subject"]
+        missing_fields = [field for field in required_fields if not raw_data.get(field)]
+        if missing_fields:
+            logger.error(f"Missing required fields in webhook: {missing_fields}")
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": f"Missing required fields: {', '.join(missing_fields)}",
+                    "error_code": "MISSING_REQUIRED_FIELDS",
+                },
+            )
+
         webhook_service = await get_webhook_service(db)
 
-        # Process the webhook
         result = await webhook_service.process_postmark_webhook(raw_data)
 
         processing_time = (time.time() - start_time) * 1000
 
-        # Create response using new model
         response_data = WebhookProcessingResponse(
             email_id=result["email_id"],
             raw_email_id=result["raw_email_id"],

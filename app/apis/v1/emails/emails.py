@@ -1,9 +1,10 @@
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_async_db
+from app.core.dependencies import get_current_user
 from app.core.utils.response.response import (
     BaseResponse,
     ErrorDetails,
@@ -20,6 +21,7 @@ from app.modules.emails import (
     EmailThreadResponse,
     get_email_service,
 )
+from app.modules.users import User
 
 router = APIRouter(prefix="/emails", tags=["emails"])
 
@@ -122,10 +124,12 @@ def _convert_email_to_detail_response(email) -> EmailDetailResponse:
 
 @router.post("/list", response_model=PaginatedResponse[EmailListItemResponse])
 async def list_emails(
-    request: EmailListRequest, db: AsyncSession = Depends(get_async_db)
+    request: EmailListRequest,
+    db: AsyncSession = Depends(get_async_db),
+    user: User = Depends(get_current_user),
 ):
     """
-    List emails with pagination, search, and sorting.
+    List emails with pagination, search, and sorting for the current user.
 
     - **page**: Page number (1-based)
     - **limit**: Number of items per page (1-100)
@@ -137,6 +141,7 @@ async def list_emails(
         email_service = await get_email_service(db)
 
         emails, total_count = await email_service.get_emails_with_pagination(
+            user_id=user.id,
             page=request.page,
             limit=request.limit,
             search_params=request.search,
@@ -162,6 +167,17 @@ async def list_emails(
             total_items=total_count,
         )
 
+    except ValueError as e:
+        return BaseResponse.error(
+            message="Invalid request parameters",
+            status_code=400,
+            data=ErrorDetails(
+                error_code="INVALID_PARAMETERS",
+                error_type="ValidationError",
+                details={"validation_error": str(e)},
+                suggestions="Please check your request parameters",
+            ),
+        )
     except Exception as e:
         return BaseResponse.error(
             message="Failed to retrieve emails",
@@ -176,34 +192,44 @@ async def list_emails(
 
 
 @router.get("/{email_id}", response_model=BaseResponse[EmailDetailResponse])
-async def get_email_details(email_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_email_details(
+    email_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    user: User = Depends(get_current_user),
+):
     """
-    Get detailed information about a specific email.
+    Get detailed information about a specific email belonging to the current user.
 
     - **email_id**: ID of the email to retrieve
     """
     try:
+        if email_id <= 0:
+            raise HTTPException(status_code=400, detail="Invalid email ID")
+
         email_service = await get_email_service(db)
-        email = await email_service.get_email_by_id(email_id)
+        email = await email_service.get_email_by_id(email_id, user_id=user.id)
 
         if not email:
             return BaseResponse.error(
                 message="Email not found",
                 status_code=404,
                 data=ErrorDetails(
-                    error_code="RESOURCE_NOT_FOUND",
+                    error_code="EMAIL_NOT_FOUND",
                     error_type="NotFoundError",
                     details={"email_id": email_id},
-                    suggestions="Please verify the email ID exists and try again",
+                    suggestions="Please check the email ID and ensure you have access to this email",
                 ),
             )
 
         email_response = _convert_email_to_detail_response(email)
 
         return BaseResponse.success(
-            message="Email details retrieved successfully", data=email_response
+            message="Email details retrieved successfully",
+            data=email_response,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         return BaseResponse.error(
             message="Failed to retrieve email details",
@@ -211,71 +237,86 @@ async def get_email_details(email_id: int, db: AsyncSession = Depends(get_async_
             data=ErrorDetails(
                 error_code="INTERNAL_SERVER_ERROR",
                 error_type="RetrievalError",
-                details={"email_id": email_id, "error": str(e)},
-                suggestions="Please verify the email ID and try again, or contact support if the issue persists",
+                details={"error": str(e)},
+                suggestions="Please check the email ID and try again, or contact support if the issue persists",
             ),
         )
 
 
 @router.get("/{email_id}/thread", response_model=BaseResponse[EmailThreadResponse])
-async def get_email_thread(email_id: int, db: AsyncSession = Depends(get_async_db)):
+async def get_email_thread(
+    email_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    user: User = Depends(get_current_user),
+):
     """
-    Get the complete email thread for a given email.
+    Get the complete email thread for a specific email belonging to the current user.
 
-    This endpoint returns the entire conversation thread including:
-    - Parent emails (emails this email replies to)
-    - Child emails (emails that reply to this email)
-    - All emails in the conversation chain
-
-    - **email_id**: ID of any email in the thread
+    - **email_id**: ID of the email to get the thread for
     """
     try:
+        if email_id <= 0:
+            raise HTTPException(status_code=400, detail="Invalid email ID")
+
         email_service = await get_email_service(db)
-        thread_emails = await email_service.get_email_thread(email_id)
+        thread_emails = await email_service.get_email_thread(email_id, user_id=user.id)
 
         if not thread_emails:
             return BaseResponse.error(
-                message="Email or thread not found",
+                message="Email thread not found",
                 status_code=404,
                 data=ErrorDetails(
-                    error_code="RESOURCE_NOT_FOUND",
+                    error_code="THREAD_NOT_FOUND",
                     error_type="NotFoundError",
                     details={"email_id": email_id},
-                    suggestions="Please verify the email ID exists and has a valid thread",
+                    suggestions="Please check the email ID and ensure you have access to this email",
                 ),
             )
 
-        email_responses = [
-            _convert_email_to_detail_response(email) for email in thread_emails
-        ]
-
         def calculate_depth(email_id, emails, current_depth=0):
-            children = [e for e in emails if e.parent_email_id == email_id]
-            if not children:
-                return current_depth
-            return max(
-                calculate_depth(child.id, emails, current_depth + 1)
-                for child in children
-            )
+            """Calculate depth of email in thread hierarchy."""
+            for email in emails:
+                if email.id == email_id:
+                    return current_depth
+                if email.parent_email_id == email_id:
+                    return calculate_depth(email.id, emails, current_depth + 1)
+            return current_depth
 
-        root_email = next(
-            (e for e in thread_emails if not e.parent_email_id), thread_emails[0]
-        )
-        thread_depth = calculate_depth(root_email.id, thread_emails)
+        thread_data = []
+        for email in thread_emails:
+            attachment_count = len(email.attachments) if email.attachments else 0
+            recipient_count = len(email.recipients) if email.recipients else 0
+            depth = calculate_depth(email.id, thread_emails)
 
-        thread_id = root_email.message_id
+            email_summary = {
+                "id": email.id,
+                "message_id": email.message_id,
+                "from_email": email.from_email,
+                "from_name": email.from_name,
+                "subject": email.subject,
+                "sent_at": email.sent_at,
+                "parent_email_id": email.parent_email_id,
+                "thread_position": email.thread_position,
+                "depth": depth,
+                "attachment_count": attachment_count,
+                "recipient_count": recipient_count,
+                "stripped_text_body": email.stripped_text_reply,
+            }
+            thread_data.append(email_summary)
 
         thread_response = EmailThreadResponse(
-            thread_id=thread_id,
-            emails=email_responses,
-            total_emails=len(email_responses),
-            thread_depth=thread_depth,
+            thread_id=thread_emails[0].thread_id if thread_emails else None,
+            total_emails=len(thread_emails),
+            emails=thread_data,
         )
 
         return BaseResponse.success(
-            message="Email thread retrieved successfully", data=thread_response
+            message="Email thread retrieved successfully",
+            data=thread_response,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         return BaseResponse.error(
             message="Failed to retrieve email thread",
@@ -283,36 +324,35 @@ async def get_email_thread(email_id: int, db: AsyncSession = Depends(get_async_d
             data=ErrorDetails(
                 error_code="INTERNAL_SERVER_ERROR",
                 error_type="RetrievalError",
-                details={"email_id": email_id, "error": str(e)},
-                suggestions="Please verify the email ID and try again, or contact support if the issue persists",
+                details={"error": str(e)},
+                suggestions="Please check the email ID and try again, or contact support if the issue persists",
             ),
         )
 
 
 @router.get("/stats/summary", response_model=BaseResponse[EmailStatsResponse])
-async def get_email_stats(db: AsyncSession = Depends(get_async_db)):
+async def get_email_stats(
+    db: AsyncSession = Depends(get_async_db), user: User = Depends(get_current_user)
+):
     """
-    Get email statistics and summary information.
+    Get email statistics summary for the current user.
 
-    Returns:
-    - Total number of emails
-    - Non-spam emails count
-    - Spam emails count
-    - Unique senders count
+    Returns counts of total emails, spam emails, non-spam emails, and unique senders.
     """
     try:
         email_service = await get_email_service(db)
-        stats = await email_service.get_email_stats()
+        stats = await email_service.get_email_stats(user_id=user.id)
 
         stats_response = EmailStatsResponse(
             total_emails=stats["total_emails"],
-            non_spam_emails=stats["non_spam_emails"],
             spam_emails=stats["spam_emails"],
+            non_spam_emails=stats["non_spam_emails"],
             unique_senders=stats["unique_senders"],
         )
 
         return BaseResponse.success(
-            message="Email statistics retrieved successfully", data=stats_response
+            message="Email statistics retrieved successfully",
+            data=stats_response,
         )
 
     except Exception as e:
@@ -329,18 +369,24 @@ async def get_email_stats(db: AsyncSession = Depends(get_async_db)):
 
 
 @router.get("/recent/{limit}", response_model=BaseResponse[List[EmailListItemResponse]])
-async def get_recent_emails(limit: int = 10, db: AsyncSession = Depends(get_async_db)):
+async def get_recent_emails(
+    limit: int = 10,
+    db: AsyncSession = Depends(get_async_db),
+    user: User = Depends(get_current_user),
+):
     """
-    Get most recent emails.
+    Get recent emails for the current user.
 
-    - **limit**: Maximum number of emails to return (default: 10, max: 50)
+    - **limit**: Maximum number of emails to return (1-50, default: 10)
     """
     try:
-        if limit > 50:
-            limit = 50
+        if limit <= 0 or limit > 50:
+            raise HTTPException(
+                status_code=400, detail="Limit must be between 1 and 50"
+            )
 
         email_service = await get_email_service(db)
-        emails = await email_service.get_recent_emails(limit)
+        emails = await email_service.get_recent_emails(user_id=user.id, limit=limit)
 
         email_responses = []
         for email in emails:
@@ -357,6 +403,8 @@ async def get_recent_emails(limit: int = 10, db: AsyncSession = Depends(get_asyn
             data=email_responses,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         return BaseResponse.error(
             message="Failed to retrieve recent emails",
@@ -364,7 +412,7 @@ async def get_recent_emails(limit: int = 10, db: AsyncSession = Depends(get_asyn
             data=ErrorDetails(
                 error_code="INTERNAL_SERVER_ERROR",
                 error_type="RetrievalError",
-                details={"limit": limit, "error": str(e)},
-                suggestions="Please try again with a different limit or contact support if the issue persists",
+                details={"error": str(e)},
+                suggestions="Please try again or contact support if the issue persists",
             ),
         )

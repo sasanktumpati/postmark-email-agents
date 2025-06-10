@@ -1,14 +1,14 @@
 import asyncio
-import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from sqlalchemy.sql import select, update
 
 from app.core.db.database import get_db_transaction
+from app.core.logger import get_logger
 from app.modules.emails.models.db import ActionablesProcessingStatus, Email
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def update_email_actionables_status(
@@ -48,7 +48,7 @@ async def process_actionables_detached(email_id: int, email_thread: str) -> None
     logger.info(f"Starting detached actionables processing for email_id: {email_id}")
     if not email_id:
         logger.error(
-            "process_actionables_detached called with invalid email_id: {email_id}"
+            f"process_actionables_detached called with invalid email_id: {email_id}"
         )
         return
 
@@ -110,10 +110,12 @@ async def process_actionables(email_id: int, email_thread: str) -> Dict[str, Any
         notes_results = results.get("notes", {})
         shopping_results = results.get("shopping", {})
 
+        success_count = 0
         if calendar_results.get("success"):
             logger.info(
                 f"Calendar processing completed successfully for email_id {email_id}"
             )
+            success_count += 1
         else:
             logger.error(
                 f"Calendar processing failed for email_id {email_id}: {calendar_results.get('error', 'Unknown error')}"
@@ -123,6 +125,7 @@ async def process_actionables(email_id: int, email_thread: str) -> Dict[str, Any
             logger.info(
                 f"Notes processing completed successfully for email_id {email_id}"
             )
+            success_count += 1
         else:
             logger.error(
                 f"Notes processing failed for email_id {email_id}: {notes_results.get('error', 'Unknown error')}"
@@ -132,12 +135,15 @@ async def process_actionables(email_id: int, email_thread: str) -> Dict[str, Any
             logger.info(
                 f"Shopping processing completed successfully for email_id {email_id}"
             )
+            success_count += 1
         else:
             logger.error(
                 f"Shopping processing failed for email_id {email_id}: {shopping_results.get('error', 'Unknown error')}"
             )
 
-        logger.info(f"Finished processing actionables for email_id: {email_id}")
+        logger.info(
+            f"Actionables processing completed for email_id: {email_id}. {success_count}/3 agents succeeded."
+        )
         return results
 
     except Exception as e:
@@ -163,6 +169,7 @@ async def get_email_thread_content(email_id: int) -> str:
     Get the formatted email thread content for processing by agents.
     This creates a structured representation of the email thread.
     """
+    logger.debug(f"Getting email thread content for email_id: {email_id}")
     try:
         async with get_db_transaction() as session:
             query = select(Email).where(Email.id == email_id)
@@ -181,8 +188,12 @@ async def get_email_thread_content(email_id: int) -> str:
                 )
                 thread_result = await session.execute(thread_query)
                 thread_emails = thread_result.scalars().all()
+                logger.debug(
+                    f"Found {len(thread_emails)} emails in thread {email.thread_id}"
+                )
             else:
                 thread_emails = [email]
+                logger.debug(f"Email {email_id} is not part of a thread")
 
             thread_content = {
                 "thread_id": email.thread_id or f"single-{email.id}",

@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.sql import select
 
+from app.core.logger import get_logger
+
 from .models import (
     Email,
     EmailAttachment,
@@ -15,12 +17,15 @@ from .models import (
     RecipientType,
 )
 
+logger = get_logger(__name__)
+
 
 class EmailThreadService:
     """Service for managing email threads."""
 
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
+        logger.debug("EmailThreadService initialized.")
 
     def generate_thread_id(self, subject: str, participants: List[str]) -> str:
         """Generate a unique thread ID based on subject and participants."""
@@ -61,6 +66,9 @@ class EmailThreadService:
         existing_thread = result.scalar_one_or_none()
 
         if existing_thread:
+            logger.debug(
+                f"Using existing thread {existing_thread.id} for subject: {subject}"
+            )
             return existing_thread
 
         new_thread = EmailThread(
@@ -73,6 +81,7 @@ class EmailThreadService:
         self.db.add(new_thread)
         await self.db.flush()
         await self.db.refresh(new_thread)
+        logger.info(f"Created new thread {new_thread.id} for subject: {subject}")
 
         return new_thread
 
@@ -95,6 +104,9 @@ class EmailThreadService:
         thread.last_email_id = email.id
 
         await self.db.flush()
+        logger.debug(
+            f"Added email {email.id} to thread {thread.id} at position {email.thread_position}"
+        )
 
     async def get_thread_participants(self, thread_id: int) -> List[str]:
         """Get all unique participants in a thread."""
@@ -104,7 +116,9 @@ class EmailThreadService:
             .where(Email.thread_id == thread_id)
             .distinct()
         )
-        return [row[0] for row in result.fetchall()]
+        participants = [row[0] for row in result.fetchall()]
+        logger.debug(f"Found {len(participants)} participants in thread {thread_id}")
+        return participants
 
     async def get_threads_with_pagination(
         self,
@@ -144,6 +158,9 @@ class EmailThreadService:
 
         result = await self.db.execute(query)
         threads = result.scalars().all()
+        logger.info(
+            f"Retrieved {len(threads)} threads (total: {total_count}) for page {page}"
+        )
 
         return list(threads), total_count
 
@@ -184,6 +201,7 @@ class EmailThreadService:
                 )
                 conditions.append(EmailThread.created_at >= date_from)
             except ValueError:
+                logger.warning(f"Invalid date_from format: {search_params.date_from}")
                 pass
 
         if search_params.date_to:
@@ -195,6 +213,7 @@ class EmailThreadService:
                 )
                 conditions.append(EmailThread.created_at <= date_to)
             except ValueError:
+                logger.warning(f"Invalid date_to format: {search_params.date_to}")
                 pass
 
         if search_params.updated_from:
@@ -206,6 +225,9 @@ class EmailThreadService:
                 )
                 conditions.append(EmailThread.updated_at >= updated_from)
             except ValueError:
+                logger.warning(
+                    f"Invalid updated_from format: {search_params.updated_from}"
+                )
                 pass
 
         if search_params.updated_to:
@@ -217,6 +239,7 @@ class EmailThreadService:
                 )
                 conditions.append(EmailThread.updated_at <= updated_to)
             except ValueError:
+                logger.warning(f"Invalid updated_to format: {search_params.updated_to}")
                 pass
 
         if conditions:
@@ -247,11 +270,13 @@ class EmailThreadService:
         thread = result.scalar_one_or_none()
 
         if not thread:
+            logger.warning(f"Thread {thread_id} not found for summary update")
             return False
 
         thread.thread_summary = summary
         thread.updated_at = func.now()
         await self.db.commit()
+        logger.info(f"Updated summary for thread {thread_id}")
 
         return True
 

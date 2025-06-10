@@ -1,14 +1,14 @@
 from dataclasses import dataclass
-import logging
 
 from pydantic_ai import RunContext
 
 from app.core.db.database import get_db_transaction
+from app.core.logger import get_logger
 from app.modules.actionables.notes.db import EmailNote
 from app.modules.actionables.notes.models.request import CreateNoteModel
 from app.modules.actionables.notes.repo import NotesRepository
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

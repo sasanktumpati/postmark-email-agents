@@ -1,3 +1,5 @@
+from app.core.logger import get_logger
+
 from .db import EmailSendStatus, SentEmail, User
 from .repository import (
     SentEmailRepository,
@@ -21,6 +23,9 @@ from .users import (
     UserWebhookService,
     get_user_webhook_service,
 )
+
+logger = get_logger(__name__)
+logger.info("Initializing app modules users package.")
 
 __all__ = [
     "User",

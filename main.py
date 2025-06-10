@@ -1,6 +1,4 @@
 import asyncio
-import logging
-import sys
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -11,41 +9,23 @@ from fastapi.staticfiles import StaticFiles
 from app.apis.v1 import router as api_v1_router
 from app.core.config import settings
 from app.core.db import init_db
-
-
-def setup_logging():
-    """Configure logging for the application."""
-
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG)
-    console_handler.setFormatter(formatter)
-
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
-    root_logger.handlers.clear()
-    root_logger.addHandler(console_handler)
-
-    logging.getLogger("app").setLevel(logging.DEBUG)
-    logging.getLogger("uvicorn").setLevel(logging.INFO)
-    logging.getLogger("fastapi").setLevel(logging.INFO)
-
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-
-    print("Logging configuration completed - Agent logs will now be visible")
+from app.core.logger import get_logger, set_log_level
+from app.core.middleware.auth import AuthMiddleware
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    setup_logging()
-    logger = logging.getLogger(__name__)
-    logger.info("Starting application with enhanced logging")
+    logger = get_logger("main")
+
+    if settings.debug:
+        set_log_level("DEBUG")
+    else:
+        set_log_level("INFO")
+
+    logger.info("Starting postmark-email-agents application with centralized logging")
+    logger.info(
+        "Log files: logs/app.log (main), logs/errors.log (errors), logs/security.log (security)"
+    )
 
     await asyncio.sleep(2)
     try:
@@ -81,6 +61,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.add_middleware(AuthMiddleware)
 
     app.include_router(api_v1_router)
 
