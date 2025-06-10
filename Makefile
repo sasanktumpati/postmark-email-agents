@@ -50,7 +50,7 @@ db-backup:
 		echo "Error: Database container is not running. Please start it with 'make db-start'"; \
 		exit 1; \
 	fi
-	docker exec $(POSTGRES_CONTAINER) pg_dump -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-postgres} > $(BACKUP_DIR)/$(BACKUP_NAME).sql
+	docker exec -e PGPASSWORD=$${POSTGRES_PASSWORD} $(POSTGRES_CONTAINER) pg_dump -U $${POSTGRES_USER} -d $${POSTGRES_DB} > $(BACKUP_DIR)/$(BACKUP_NAME).sql
 	@echo "Backup created: $(BACKUP_DIR)/$(BACKUP_NAME).sql"
 
 db-restore:
@@ -69,7 +69,7 @@ db-restore:
 	@echo "Restoring database from $(BACKUP_FILE)..."
 	@echo "Warning: This will replace all current data in the database!"
 	@read -p "Are you sure you want to continue? (y/N): " confirm && [ "$$confirm" = "y" ] || exit 1
-	docker exec -i $(POSTGRES_CONTAINER) psql -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-postgres} < $(BACKUP_FILE)
+	docker exec -i -e PGPASSWORD=$${POSTGRES_PASSWORD} $(POSTGRES_CONTAINER) psql -U $${POSTGRES_USER} -d $${POSTGRES_DB} < $(BACKUP_FILE)
 	@echo "Database restored successfully from $(BACKUP_FILE)"
 
 server: db-start
