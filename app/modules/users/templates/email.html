@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Actionable Mail</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #1a1a1a;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+
+        .container {
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 32px;
+            border: 1px solid #e5e7eb;
+        }
+
+        h1 {
+            color: #111827;
+            font-size: 24px;
+            font-weight: 600;
+            margin: 0 0 24px 0;
+        }
+
+        .api-key {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 16px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 14px;
+            margin: 20px 0;
+            word-break: break-all;
+            color: #374151;
+        }
+
+        .highlight {
+            background: #dbeafe;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+            color: #1e40af;
+        }
+
+        .action-list {
+            background: #f9fafb;
+            border-radius: 6px;
+            padding: 16px;
+            margin: 16px 0;
+            border-left: 3px solid #3b82f6;
+        }
+
+        .action-item {
+            margin: 8px 0;
+            font-size: 14px;
+            color: #4b5563;
+        }
+
+        .action-item strong {
+            color: #374151;
+        }
+
+        .cta {
+            background: #3b82f6;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            display: inline-block;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+
+        .cta:hover {
+            background: #2563eb;
+        }
+
+        .footer {
+            margin-top: 32px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 12px;
+            color: #6b7280;
+            text-align: center;
+        }
+
+        .footer a {
+            color: #3b82f6;
+            text-decoration: none;
+        }
+
+        .step {
+            margin: 16px 0;
+            padding: 12px 16px;
+            background: #fefefe;
+            border-radius: 4px;
+            border-left: 2px solid #10b981;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Welcome to Actionable Mail, {name}!</h1>
+
+        <p>Transform your inbox into an intelligent productivity hub. Our AI automatically extracts actionable items
+            from your emails.</p>
+
+        <p><strong>Your API Key:</strong></p>
+        <div class="api-key">{api_key}</div>
+
+        <h2>Get Started in 2 Steps</h2>
+
+        <div class="step">
+            <strong>1. Send emails to your inbox:</strong><br>
+            Forward emails to <span class="highlight">inbound+{name}@mail.built.systems</span>
+        </div>
+
+        <div class="step">
+            <strong>2. View your actionables:</strong><br>
+            <a href="https://email.built.systems" class="cta">Login to Dashboard</a>
+        </div>
+
+        <h2>What our AI extracts:</h2>
+        <div class="action-list">
+            <div class="action-item"><strong>Calendar Events:</strong> Meetings, appointments, deadlines</div>
+            <div class="action-item"><strong>Reminders:</strong> Important tasks and follow-ups</div>
+            <div class="action-item"><strong>Notes:</strong> Key information to remember</div>
+            <div class="action-item"><strong>Bills:</strong> Invoices, payments, and subscriptions</div>
+            <div class="action-item"><strong>Coupons:</strong> Discount codes and promotional offers</div>
+            <div class="action-item"><strong>Follow-ups:</strong> Required responses and check-ins</div>
+        </div>
+
+        <h2>How it works</h2>
+        <p>Our AI agents automatically process your emails in real-time, intelligently categorizing and extracting
+            actionable items. No more missed deadlines or forgotten discount codes.</p>
+
+        <div class="footer">
+            <p>Powered by <a href="https://postmarkapp.com">Postmark</a></p>
+        </div>
+    </div>
+</body>
+
+</html>

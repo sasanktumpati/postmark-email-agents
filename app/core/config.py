@@ -11,7 +11,7 @@ class ConfigurationError(Exception):
 
 class Settings:
     def __init__(self):
-        self.app_name: str = os.getenv("APP_NAME", "Postmark Email Agents APIs")
+        self.app_name: str = os.getenv("APP_NAME", "Actionable Mail APIs")
         self.app_version: str = os.getenv("APP_VERSION", "0.0.1")
         self.debug: bool = os.getenv("DEBUG", "false").lower() == "true"
 
@@ -35,6 +35,12 @@ class Settings:
         self.gemini_model_name: str = os.getenv(
             "GEMINI_MODEL", "gemini-2.5-flash-preview-04-17"
         )
+
+        # Postmark API configuration
+        self._postmark_api_key: str = os.getenv("POSTMARK_API_KEY")
+
+        self._secret_key: str = os.getenv("SECRET_KEY")
+        self.api_key_salt: str = os.getenv("API_KEY_SALT", "API_KEY_SALT")
 
         self._validate_config()
 
@@ -71,6 +77,15 @@ class Settings:
         if self.db_max_overflow < 0:
             raise ConfigurationError("DB_MAX_OVERFLOW must be non-negative")
 
+        if self._gemini_api_key is None:
+            raise ConfigurationError("GEMINI_API_KEY is not set")
+
+        if self._postmark_api_key is None:
+            raise ConfigurationError("POSTMARK_API_KEY is not set")
+
+        if self._secret_key is None:
+            raise ConfigurationError("SECRET_KEY is not set")
+
     def validate_database_config(self) -> bool:
         try:
             self._validate_config()
@@ -81,6 +96,11 @@ class Settings:
     def validate_gemini_api_key(self) -> bool:
         if not self._gemini_api_key:
             raise ConfigurationError("GEMINI_API_KEY is not set")
+        return True
+
+    def validate_postmark_api_key(self) -> bool:
+        if not self._postmark_api_key:
+            raise ConfigurationError("POSTMARK_API_KEY is not set")
         return True
 
     @property
@@ -101,6 +121,15 @@ class Settings:
     def async_database_url(self) -> str:
         """Asynchronous database URL for asyncpg"""
         return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+
+    @property
+    def postmark_api_key(self) -> str:
+        self.validate_postmark_api_key()
+        return self._postmark_api_key
+
+    @property
+    def secret_key(self) -> str:
+        return self._secret_key
 
 
 def get_config() -> Settings:

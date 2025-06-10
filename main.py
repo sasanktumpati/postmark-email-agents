@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Postmark Email Agents",
+        title="Actionable Mail",
         description="API for handling Postmark email webhooks with AsyncPG support",
         version="0.1.0",
         lifespan=lifespan,

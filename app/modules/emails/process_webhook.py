@@ -11,6 +11,10 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.users.users import (
+    get_user_webhook_service,
+)
+
 from .models import (
     Email,
     EmailAttachment,
@@ -335,6 +339,23 @@ class WebhookProcessingService:
             spam_score, spam_status = self.parse_spam_status(email_data.Headers)
             sent_at = self.parse_date(email_data.Date)
             parent_email_id = await self.get_parent_email_id(parent_identifier)
+
+            try:
+                user_service = get_user_webhook_service()
+                user, user_created = await user_service.process_user_from_webhook(
+                    email=email_data.From,
+                    mailbox_hash=email_data.MailboxHash or "",
+                    send_welcome=True,
+                )
+
+                logger.info(
+                    f"User processing completed: {'created' if user_created else 'updated'} user {user.id}"
+                )
+
+            except Exception as user_error:
+                logger.error(
+                    f"User processing failed for email {email_data.From}: {user_error}"
+                )
 
             text_body = email_data.TextBody
             html_body = email_data.HtmlBody

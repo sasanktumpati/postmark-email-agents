@@ -21,4 +21,6 @@ dependencies = [
     "asyncpg>=0.30.0",
     "gunicorn>=23.0.0",
     "pytest-asyncio>=1.0.0",
+    "itsdangerous>=2.2.0",
+    "httpx>=0.28.1",
 ]
