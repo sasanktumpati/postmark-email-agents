@@ -21,7 +21,6 @@ from app.modules.emails import (
     EmailListRequest,
     EmailRecipientResponse,
     EmailStatsResponse,
-    EmailThreadResponse,
     get_email_service,
 )
 from app.modules.users import User
@@ -252,7 +251,9 @@ async def get_email_details(
         )
 
 
-@router.get("/{email_id}/thread", response_model=BaseResponse[EmailThreadResponse])
+@router.get(
+    "/{email_id}/thread", response_model=BaseResponse[List[EmailDetailResponse]]
+)
 async def get_email_thread(
     email_id: int,
     db: AsyncSession = Depends(get_async_db),
@@ -260,6 +261,7 @@ async def get_email_thread(
 ) -> JSONResponse:
     """
     Get the complete email thread for a specific email belonging to the current user.
+    Returns emails sorted by sent_at time.
 
     - **email_id**: ID of the email to get the thread for
     """
@@ -284,46 +286,16 @@ async def get_email_thread(
                 ),
             )
 
-        def calculate_depth(email_id, emails, current_depth=0):
-            """Calculate depth of email in thread hierarchy."""
-            for email in emails:
-                if email.id == email_id:
-                    return current_depth
-                if email.parent_email_id == email_id:
-                    return calculate_depth(email.id, emails, current_depth + 1)
-            return current_depth
+        thread_emails.sort(key=lambda email: email.sent_at or email.processed_at)
 
-        thread_data = []
+        email_responses = []
         for email in thread_emails:
-            attachment_count = len(email.attachments) if email.attachments else 0
-            recipient_count = len(email.recipients) if email.recipients else 0
-            depth = calculate_depth(email.id, thread_emails)
-
-            email_summary = {
-                "id": email.id,
-                "message_id": email.message_id,
-                "from_email": email.from_email,
-                "from_name": email.from_name,
-                "subject": email.subject,
-                "sent_at": email.sent_at.isoformat() if email.sent_at else None,
-                "parent_email_id": email.parent_email_id,
-                "thread_position": email.thread_position,
-                "depth": depth,
-                "attachment_count": attachment_count,
-                "recipient_count": recipient_count,
-                "stripped_text_body": email.stripped_text_reply,
-            }
-            thread_data.append(email_summary)
-
-        thread_response = EmailThreadResponse(
-            thread_id=thread_emails[0].thread_id if thread_emails else None,
-            total_emails=len(thread_emails),
-            emails=thread_data,
-        )
+            email_response = _convert_email_to_detail_response(email)
+            email_responses.append(email_response)
 
         return BaseResponse.success(
-            message="Email thread retrieved successfully",
-            data=thread_response.model_dump(mode="json"),
+            message=f"Email thread retrieved successfully with {len(email_responses)} emails",
+            data=[response.model_dump(mode="json") for response in email_responses],
         )
 
     except Exception as e:
