@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Tuple
 
 from fastapi import Depends
@@ -158,13 +159,20 @@ class ActionableService:
         all_items.extend([("coupon", item) for item in shopping_coupons])
 
         try:
-            all_items.sort(
-                key=lambda x: getattr(x[1], "created_at", None)
-                or getattr(x[1], "start_time", None)
-                or getattr(x[1], "reminder_time", None)
-                or getattr(x[1], "follow_up_time", None),
-                reverse=True,
-            )
+
+            def get_sort_key(item):
+                """Get sorting key for actionable item, defaulting to epoch for None dates."""
+                _, obj = item
+                date_value = (
+                    getattr(obj, "created_at", None)
+                    or getattr(obj, "start_time", None)
+                    or getattr(obj, "reminder_time", None)
+                    or getattr(obj, "follow_up_time", None)
+                )
+
+                return date_value or datetime(2025, 1, 1)
+
+            all_items.sort(key=get_sort_key, reverse=True)
         except Exception as e:
             logger.warning(f"Could not sort actionables by date: {e}")
 
@@ -248,8 +256,6 @@ class ActionableService:
 
         if date_field and request.start_date:
             try:
-                from datetime import datetime
-
                 if isinstance(request.start_date, str):
                     start_date = datetime.fromisoformat(
                         request.start_date.replace("Z", "+00:00")
@@ -263,8 +269,6 @@ class ActionableService:
 
         if date_field and request.end_date:
             try:
-                from datetime import datetime
-
                 if isinstance(request.end_date, str):
                     end_date = datetime.fromisoformat(
                         request.end_date.replace("Z", "+00:00")
