@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.actionables.calendar.db import (
     EventStatus,
@@ -22,16 +22,17 @@ class ActionableType(str, Enum):
 
 
 class EventAttendeeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email: str
     name: Optional[str] = None
     is_organizer: bool
 
-    class Config:
-        from_attributes = True
-
 
 class CalendarEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email_id: int
     title: str
@@ -41,43 +42,43 @@ class CalendarEventResponse(BaseModel):
     location: Optional[str] = None
     status: EventStatus
     attendees: List[EventAttendeeResponse] = []
-
-    class Config:
-        from_attributes = True
+    type: str = Field(default="calendar_event", description="Type of actionable")
 
 
 class EmailReminderResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email_id: int
     reminder_time: datetime
     note: Optional[str] = None
     status: ReminderStatus
-
-    class Config:
-        from_attributes = True
+    type: str = Field(default="reminder", description="Type of actionable")
 
 
 class FollowUpResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email_id: int
     follow_up_time: datetime
     note: Optional[str] = None
     status: FollowUpStatus
-
-    class Config:
-        from_attributes = True
+    type: str = Field(default="follow_up", description="Type of actionable")
 
 
 class EmailNoteResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email_id: int
     note: str
-
-    class Config:
-        from_attributes = True
+    type: str = Field(default="note", description="Type of actionable")
 
 
 class BillResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email_id: int
     vendor: str
@@ -85,21 +86,19 @@ class BillResponse(BaseModel):
     currency: Currency
     due_date: Optional[datetime] = None
     payment_url: Optional[str] = None
-
-    class Config:
-        from_attributes = True
+    type: str = Field(default="bill", description="Type of actionable")
 
 
 class CouponResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email_id: int
     vendor: str
     code: str
     discount: Optional[str] = None
     expiry_date: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
+    type: str = Field(default="coupon", description="Type of actionable")
 
 
 ActionableObject = Union[
@@ -128,3 +127,25 @@ class ActionableListRequest(BaseModel):
     end_date: Optional[datetime] = Field(
         None, description="Filter actionables up to this date"
     )
+
+
+class CalendarActionables(BaseModel):
+    events: List[CalendarEventResponse] = []
+    reminders: List[EmailReminderResponse] = []
+    follow_ups: List[FollowUpResponse] = []
+
+
+class NotesActionables(BaseModel):
+    notes: List[EmailNoteResponse] = []
+
+
+class ShoppingActionables(BaseModel):
+    bills: List[BillResponse] = []
+    coupons: List[CouponResponse] = []
+
+
+class GroupedActionablesResponse(BaseModel):
+    calendar: CalendarActionables
+    notes: NotesActionables
+    shopping: ShoppingActionables
+    total_count: int

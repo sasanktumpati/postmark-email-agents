@@ -5,12 +5,16 @@ from .actionables import (
     ActionableObject,
     ActionableType,
     BillResponse,
+    CalendarActionables,
     CalendarEventResponse,
     CouponResponse,
     EmailNoteResponse,
     EmailReminderResponse,
     EventAttendeeResponse,
     FollowUpResponse,
+    GroupedActionablesResponse,
+    NotesActionables,
+    ShoppingActionables,
 )
 
 logger = get_logger(__name__)
@@ -27,4 +31,8 @@ __all__ = [
     "BillResponse",
     "CouponResponse",
     "EventAttendeeResponse",
+    "CalendarActionables",
+    "NotesActionables",
+    "ShoppingActionables",
+    "GroupedActionablesResponse",
 ]

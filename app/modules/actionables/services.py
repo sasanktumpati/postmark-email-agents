@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Tuple
 
 from fastapi import Depends
 from sqlalchemy import select
@@ -9,14 +9,17 @@ from app.core.db import get_async_db
 from app.core.logger import get_logger
 from app.modules.actionables.api import (
     ActionableListRequest,
-    ActionableObject,
     ActionableType,
     BillResponse,
+    CalendarActionables,
     CalendarEventResponse,
     CouponResponse,
     EmailNoteResponse,
     EmailReminderResponse,
     FollowUpResponse,
+    GroupedActionablesResponse,
+    NotesActionables,
+    ShoppingActionables,
 )
 from app.modules.actionables.calendar.db import CalendarEvent, EmailReminder, FollowUp
 from app.modules.actionables.notes.db import EmailNote
@@ -33,7 +36,7 @@ class ActionableService:
 
     async def list_actionables(
         self, request: ActionableListRequest, user_id: int
-    ) -> Tuple[List[ActionableObject], int]:
+    ) -> Tuple[GroupedActionablesResponse, int]:
         logger.debug(f"Listing actionables for user ID: {user_id}")
 
         if user_id <= 0:
@@ -45,85 +48,170 @@ class ActionableService:
         if request.limit <= 0 or request.limit > 100:
             request.limit = 20
 
-        queries = []
+        calendar_events = []
+        calendar_reminders = []
+        calendar_follow_ups = []
+        notes = []
+        shopping_bills = []
+        shopping_coupons = []
 
         if (
             not request.actionable_types
             or ActionableType.CALENDAR_EVENT in request.actionable_types
         ):
-            queries.append(self._get_calendar_events_query(request, user_id))
+            events_query = self._get_calendar_events_query(request, user_id)
+            try:
+                result = await self.db.execute(events_query)
+                events = result.scalars().all()
+                calendar_events = [
+                    CalendarEventResponse.model_validate(event) for event in events
+                ]
+            except Exception as e:
+                logger.error(f"Error fetching calendar events for user {user_id}: {e}")
+
         if (
             not request.actionable_types
             or ActionableType.REMINDER in request.actionable_types
         ):
-            queries.append(self._get_reminders_query(request, user_id))
+            reminders_query = self._get_reminders_query(request, user_id)
+            try:
+                result = await self.db.execute(reminders_query)
+                reminders = result.scalars().all()
+                calendar_reminders = [
+                    EmailReminderResponse.model_validate(reminder)
+                    for reminder in reminders
+                ]
+            except Exception as e:
+                logger.error(f"Error fetching reminders for user {user_id}: {e}")
+
         if (
             not request.actionable_types
             or ActionableType.FOLLOW_UP in request.actionable_types
         ):
-            queries.append(self._get_follow_ups_query(request, user_id))
+            follow_ups_query = self._get_follow_ups_query(request, user_id)
+            try:
+                result = await self.db.execute(follow_ups_query)
+                follow_ups = result.scalars().all()
+                calendar_follow_ups = [
+                    FollowUpResponse.model_validate(follow_up)
+                    for follow_up in follow_ups
+                ]
+            except Exception as e:
+                logger.error(f"Error fetching follow ups for user {user_id}: {e}")
+
         if (
             not request.actionable_types
             or ActionableType.NOTE in request.actionable_types
         ):
-            queries.append(self._get_notes_query(request, user_id))
+            notes_query = self._get_notes_query(request, user_id)
+            try:
+                result = await self.db.execute(notes_query)
+                notes_data = result.scalars().all()
+                notes = [EmailNoteResponse.model_validate(note) for note in notes_data]
+            except Exception as e:
+                logger.error(f"Error fetching notes for user {user_id}: {e}")
+
         if (
             not request.actionable_types
             or ActionableType.BILL in request.actionable_types
         ):
-            queries.append(self._get_bills_query(request, user_id))
+            bills_query = self._get_bills_query(request, user_id)
+            try:
+                result = await self.db.execute(bills_query)
+                bills = result.scalars().all()
+                shopping_bills = [BillResponse.model_validate(bill) for bill in bills]
+            except Exception as e:
+                logger.error(f"Error fetching bills for user {user_id}: {e}")
+
         if (
             not request.actionable_types
             or ActionableType.COUPON in request.actionable_types
         ):
-            queries.append(self._get_coupons_query(request, user_id))
-
-        all_actionables = []
-        for query in queries:
+            coupons_query = self._get_coupons_query(request, user_id)
             try:
-                result = await self.db.execute(query)
-                all_actionables.extend(result.scalars().all())
+                result = await self.db.execute(coupons_query)
+                coupons = result.scalars().all()
+                shopping_coupons = [
+                    CouponResponse.model_validate(coupon) for coupon in coupons
+                ]
             except Exception as e:
-                logger.error(
-                    f"Error executing actionables query for user {user_id}: {e}"
-                )
-                continue
+                logger.error(f"Error fetching coupons for user {user_id}: {e}")
 
-        all_actionables.sort(
-            key=lambda x: getattr(x, "created_at", None) or x.created_at, reverse=True
+        total_count = (
+            len(calendar_events)
+            + len(calendar_reminders)
+            + len(calendar_follow_ups)
+            + len(notes)
+            + len(shopping_bills)
+            + len(shopping_coupons)
         )
-
-        total_count = len(all_actionables)
 
         start = (request.page - 1) * request.limit
         end = start + request.limit
-        paginated_actionables = all_actionables[start:end]
 
-        response_objects = []
-        for item in paginated_actionables:
-            try:
-                if isinstance(item, CalendarEvent):
-                    response_objects.append(CalendarEventResponse.from_orm(item))
-                elif isinstance(item, EmailReminder):
-                    response_objects.append(EmailReminderResponse.from_orm(item))
-                elif isinstance(item, FollowUp):
-                    response_objects.append(FollowUpResponse.from_orm(item))
-                elif isinstance(item, EmailNote):
-                    response_objects.append(EmailNoteResponse.from_orm(item))
-                elif isinstance(item, Bill):
-                    response_objects.append(BillResponse.from_orm(item))
-                elif isinstance(item, Coupon):
-                    response_objects.append(CouponResponse.from_orm(item))
-            except Exception as e:
-                logger.error(
-                    f"Error converting actionable to response for user {user_id}: {e}"
-                )
-                continue
+        all_items = []
+        all_items.extend([("event", item) for item in calendar_events])
+        all_items.extend([("reminder", item) for item in calendar_reminders])
+        all_items.extend([("follow_up", item) for item in calendar_follow_ups])
+        all_items.extend([("note", item) for item in notes])
+        all_items.extend([("bill", item) for item in shopping_bills])
+        all_items.extend([("coupon", item) for item in shopping_coupons])
+
+        try:
+            all_items.sort(
+                key=lambda x: getattr(x[1], "created_at", None)
+                or getattr(x[1], "start_time", None)
+                or getattr(x[1], "reminder_time", None)
+                or getattr(x[1], "follow_up_time", None),
+                reverse=True,
+            )
+        except Exception as e:
+            logger.warning(f"Could not sort actionables by date: {e}")
+
+        paginated_items = all_items[start:end]
+
+        paginated_events = []
+        paginated_reminders = []
+        paginated_follow_ups = []
+        paginated_notes = []
+        paginated_bills = []
+        paginated_coupons = []
+
+        for item_type, item in paginated_items:
+            if item_type == "event":
+                paginated_events.append(item)
+            elif item_type == "reminder":
+                paginated_reminders.append(item)
+            elif item_type == "follow_up":
+                paginated_follow_ups.append(item)
+            elif item_type == "note":
+                paginated_notes.append(item)
+            elif item_type == "bill":
+                paginated_bills.append(item)
+            elif item_type == "coupon":
+                paginated_coupons.append(item)
+
+        grouped_response = GroupedActionablesResponse(
+            calendar=CalendarActionables(
+                events=paginated_events,
+                reminders=paginated_reminders,
+                follow_ups=paginated_follow_ups,
+            ),
+            notes=NotesActionables(notes=paginated_notes),
+            shopping=ShoppingActionables(
+                bills=paginated_bills, coupons=paginated_coupons
+            ),
+            total_count=total_count,
+        )
 
         logger.info(
-            f"Retrieved {len(response_objects)} actionables for user {user_id} (total: {total_count})"
+            f"Retrieved grouped actionables for user {user_id} "
+            f"(events: {len(paginated_events)}, reminders: {len(paginated_reminders)}, "
+            f"follow_ups: {len(paginated_follow_ups)}, notes: {len(paginated_notes)}, "
+            f"bills: {len(paginated_bills)}, coupons: {len(paginated_coupons)}, total: {total_count})"
         )
-        return response_objects, total_count
+
+        return grouped_response, total_count
 
     def _apply_common_filters(
         self, query, model, request: ActionableListRequest, user_id: int
