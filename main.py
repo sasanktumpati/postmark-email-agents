@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.apis.v1 import router as api_v1_router
 from app.core.config import settings
-from app.core.db import init_db_async
+from app.core.db import init_db
 
 
 def setup_logging():
@@ -26,12 +26,11 @@ def setup_logging():
     console_handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(logging.DEBUG)
     root_logger.handlers.clear()
     root_logger.addHandler(console_handler)
 
-    logging.getLogger("app.modules.actionables").setLevel(logging.DEBUG)
-    logging.getLogger("app.modules.actionables.agents").setLevel(logging.DEBUG)
+    logging.getLogger("app").setLevel(logging.DEBUG)
     logging.getLogger("uvicorn").setLevel(logging.INFO)
     logging.getLogger("fastapi").setLevel(logging.INFO)
 
@@ -50,7 +49,7 @@ async def lifespan(app: FastAPI):
 
     await asyncio.sleep(2)
     try:
-        await init_db_async()
+        await init_db()
         logger.info("Database initialized successfully")
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")

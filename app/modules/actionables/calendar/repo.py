@@ -1,6 +1,4 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.core.db.repository import TransactionalRepository
+from app.core.db.repository import Repository
 from app.modules.actionables.calendar.db import (
     CalendarEvent,
     EmailReminder,
@@ -10,12 +8,11 @@ from app.modules.actionables.calendar.db import (
 
 
 class CalendarRepository:
-    def __init__(self, db_session: AsyncSession):
-        self.db_session = db_session
-        self.event = TransactionalRepository(db_session, CalendarEvent)
-        self.reminder = TransactionalRepository(db_session, EmailReminder)
-        self.follow_up = TransactionalRepository(db_session, FollowUp)
-        self.attendee = TransactionalRepository(db_session, EventAttendee)
+    def __init__(self):
+        self.event = Repository(CalendarEvent)
+        self.reminder = Repository(EmailReminder)
+        self.follow_up = Repository(FollowUp)
+        self.attendee = Repository(EventAttendee)
 
     async def commit(self):
         await self.db_session.commit()

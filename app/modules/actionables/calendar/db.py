@@ -16,6 +16,15 @@ from sqlalchemy.sql import func
 from app.core.db import Base
 
 
+class Priority(enum.Enum):
+    """Enum for priority levels."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
 class EventStatus(enum.Enum):
     """Enum for event statuses."""
 
@@ -53,6 +62,7 @@ class CalendarEvent(Base):
     end_time = Column(DateTime(timezone=True), nullable=False)
     location = Column(String(255), nullable=True)
     status = Column(Enum(EventStatus), default=EventStatus.CONFIRMED)
+    priority = Column(Enum(Priority), default=Priority.MEDIUM)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -73,6 +83,7 @@ class EmailReminder(Base):
     reminder_time = Column(DateTime(timezone=True), nullable=False)
     note = Column(Text, nullable=True)
     status = Column(Enum(ReminderStatus), default=ReminderStatus.SCHEDULED)
+    priority = Column(Enum(Priority), default=Priority.MEDIUM)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -93,6 +104,7 @@ class FollowUp(Base):
     follow_up_time = Column(DateTime(timezone=True), nullable=False)
     note = Column(Text, nullable=True)
     status = Column(Enum(FollowUpStatus), default=FollowUpStatus.PENDING)
+    priority = Column(Enum(Priority), default=Priority.MEDIUM)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(

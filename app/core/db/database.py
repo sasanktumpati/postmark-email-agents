@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -9,11 +10,12 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.sql import text
 
 from app.core.config import settings
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 async_engine: AsyncEngine = create_async_engine(
@@ -71,45 +73,25 @@ async def get_db_transaction() -> AsyncGenerator[AsyncSession, None]:
     """Create a new database session with automatic transaction management"""
     async with AsyncSessionLocal() as session:
         try:
+            logger.debug("Yielding database session with transaction")
             yield session
             await session.commit()
-        except Exception:
+            logger.debug("Database transaction committed")
+        except Exception as e:
+            logger.error(
+                f"Database transaction failed, rolling back: {e}", exc_info=True
+            )
             await session.rollback()
             raise
         finally:
+            logger.debug("Closing database session")
             await session.close()
-
-
-async def reset_sequences() -> None:
-    """Reset database sequences to fix any sequence conflicts."""
-    async with async_engine.begin() as conn:
-        await conn.execute(
-            text("""
-            SELECT setval(pg_get_serial_sequence('calendar_events', 'id'), 
-                         COALESCE((SELECT MAX(id) FROM calendar_events), 1));
-            SELECT setval(pg_get_serial_sequence('email_reminders', 'id'), 
-                         COALESCE((SELECT MAX(id) FROM email_reminders), 1));
-            SELECT setval(pg_get_serial_sequence('follow_ups', 'id'), 
-                         COALESCE((SELECT MAX(id) FROM follow_ups), 1));
-            SELECT setval(pg_get_serial_sequence('email_notes', 'id'), 
-                         COALESCE((SELECT MAX(id) FROM email_notes), 1));
-            SELECT setval(pg_get_serial_sequence('bills', 'id'), 
-                         COALESCE((SELECT MAX(id) FROM bills), 1));
-            SELECT setval(pg_get_serial_sequence('coupons', 'id'), 
-                         COALESCE((SELECT MAX(id) FROM coupons), 1));
-            """)
-        )
 
 
 async def init_db() -> None:
     """Initialize database tables and reset sequences"""
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-    try:
-        await reset_sequences()
-    except Exception:
-        pass
 
 
 async def close_db() -> None:

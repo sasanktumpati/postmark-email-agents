@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.sql import select, update
 
-from app.core.db.database import get_db_session
+from app.core.db.database import get_db_transaction
 from app.modules.emails.models.db import ActionablesProcessingStatus, Email
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ async def update_email_actionables_status(
 ) -> None:
     """Update the actionables processing status of an email."""
     try:
-        async with get_db_session() as session:
+        async with get_db_transaction() as session:
             update_data = {
                 "actionables_processing_status": status,
                 "actionables_processed_at": datetime.now()
@@ -31,7 +31,6 @@ async def update_email_actionables_status(
             await session.execute(
                 update(Email).where(Email.id == email_id).values(**update_data)
             )
-            await session.commit()
             logger.info(
                 f"Updated actionables status for email {email_id} to {status.value}"
             )
@@ -47,6 +46,11 @@ async def process_actionables_detached(email_id: int, email_thread: str) -> None
     This function is designed to be called asynchronously without blocking the main request.
     """
     logger.info(f"Starting detached actionables processing for email_id: {email_id}")
+    if not email_id:
+        logger.error(
+            "process_actionables_detached called with invalid email_id: {email_id}"
+        )
+        return
 
     try:
         await update_email_actionables_status(
@@ -160,7 +164,7 @@ async def get_email_thread_content(email_id: int) -> str:
     This creates a structured representation of the email thread.
     """
     try:
-        async with get_db_session() as session:
+        async with get_db_transaction() as session:
             query = select(Email).where(Email.id == email_id)
             result = await session.execute(query)
             email = result.scalar_one_or_none()

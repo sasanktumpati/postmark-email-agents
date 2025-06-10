@@ -20,4 +20,5 @@ dependencies = [
     "ruff>=0.11.12",
     "asyncpg>=0.30.0",
     "gunicorn>=23.0.0",
+    "pytest-asyncio>=1.0.0",
 ]
