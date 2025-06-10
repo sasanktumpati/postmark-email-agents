@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 
 from app.core.dependencies import get_current_user
 from app.core.utils.response.response import PaginatedResponse
@@ -14,7 +15,7 @@ async def list_actionables(
     request: ActionableListRequest,
     actionable_service: ActionableService = Depends(get_actionable_service),
     user: User = Depends(get_current_user),
-):
+) -> JSONResponse:
     """
     List all actionables for the current user with filtering and pagination.
     """
@@ -30,4 +31,9 @@ async def list_actionables(
             total_items=total_count,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return PaginatedResponse.failure(
+            message=str(e),
+            page=request.page,
+            limit=request.limit,
+            http_status_code=500,
+        )

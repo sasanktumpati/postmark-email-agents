@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_async_db
@@ -127,7 +128,7 @@ async def list_emails(
     request: EmailListRequest,
     db: AsyncSession = Depends(get_async_db),
     user: User = Depends(get_current_user),
-):
+) -> JSONResponse:
     """
     List emails with pagination, search, and sorting for the current user.
 
@@ -168,9 +169,11 @@ async def list_emails(
         )
 
     except ValueError as e:
-        return BaseResponse.error(
+        return PaginatedResponse.failure(
             message="Invalid request parameters",
-            status_code=400,
+            http_status_code=400,
+            page=request.page,
+            limit=request.limit,
             data=ErrorDetails(
                 error_code="INVALID_PARAMETERS",
                 error_type="ValidationError",
@@ -179,9 +182,11 @@ async def list_emails(
             ),
         )
     except Exception as e:
-        return BaseResponse.error(
+        return PaginatedResponse.failure(
             message="Failed to retrieve emails",
-            status_code=500,
+            http_status_code=500,
+            page=request.page,
+            limit=request.limit,
             data=ErrorDetails(
                 error_code="INTERNAL_SERVER_ERROR",
                 error_type="RetrievalError",
@@ -196,7 +201,7 @@ async def get_email_details(
     email_id: int,
     db: AsyncSession = Depends(get_async_db),
     user: User = Depends(get_current_user),
-):
+) -> JSONResponse:
     """
     Get detailed information about a specific email belonging to the current user.
 
@@ -204,15 +209,17 @@ async def get_email_details(
     """
     try:
         if email_id <= 0:
-            raise HTTPException(status_code=400, detail="Invalid email ID")
+            return BaseResponse.failure(
+                message="Invalid email ID", http_status_code=400
+            )
 
         email_service = await get_email_service(db)
         email = await email_service.get_email_by_id(email_id, user_id=user.id)
 
         if not email:
-            return BaseResponse.error(
+            return BaseResponse.failure(
                 message="Email not found",
-                status_code=404,
+                http_status_code=404,
                 data=ErrorDetails(
                     error_code="EMAIL_NOT_FOUND",
                     error_type="NotFoundError",
@@ -228,12 +235,10 @@ async def get_email_details(
             data=email_response,
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
-        return BaseResponse.error(
+        return BaseResponse.failure(
             message="Failed to retrieve email details",
-            status_code=500,
+            http_status_code=500,
             data=ErrorDetails(
                 error_code="INTERNAL_SERVER_ERROR",
                 error_type="RetrievalError",
@@ -248,7 +253,7 @@ async def get_email_thread(
     email_id: int,
     db: AsyncSession = Depends(get_async_db),
     user: User = Depends(get_current_user),
-):
+) -> JSONResponse:
     """
     Get the complete email thread for a specific email belonging to the current user.
 
@@ -256,15 +261,17 @@ async def get_email_thread(
     """
     try:
         if email_id <= 0:
-            raise HTTPException(status_code=400, detail="Invalid email ID")
+            return BaseResponse.failure(
+                message="Invalid email ID", http_status_code=400
+            )
 
         email_service = await get_email_service(db)
         thread_emails = await email_service.get_email_thread(email_id, user_id=user.id)
 
         if not thread_emails:
-            return BaseResponse.error(
+            return BaseResponse.failure(
                 message="Email thread not found",
-                status_code=404,
+                http_status_code=404,
                 data=ErrorDetails(
                     error_code="THREAD_NOT_FOUND",
                     error_type="NotFoundError",
@@ -315,12 +322,10 @@ async def get_email_thread(
             data=thread_response,
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
-        return BaseResponse.error(
+        return BaseResponse.failure(
             message="Failed to retrieve email thread",
-            status_code=500,
+            http_status_code=500,
             data=ErrorDetails(
                 error_code="INTERNAL_SERVER_ERROR",
                 error_type="RetrievalError",
@@ -333,7 +338,7 @@ async def get_email_thread(
 @router.get("/stats/summary", response_model=BaseResponse[EmailStatsResponse])
 async def get_email_stats(
     db: AsyncSession = Depends(get_async_db), user: User = Depends(get_current_user)
-):
+) -> JSONResponse:
     """
     Get email statistics summary for the current user.
 
@@ -356,9 +361,9 @@ async def get_email_stats(
         )
 
     except Exception as e:
-        return BaseResponse.error(
+        return BaseResponse.failure(
             message="Failed to retrieve email statistics",
-            status_code=500,
+            http_status_code=500,
             data=ErrorDetails(
                 error_code="INTERNAL_SERVER_ERROR",
                 error_type="RetrievalError",
@@ -373,7 +378,7 @@ async def get_recent_emails(
     limit: int = 10,
     db: AsyncSession = Depends(get_async_db),
     user: User = Depends(get_current_user),
-):
+) -> JSONResponse:
     """
     Get recent emails for the current user.
 
@@ -381,8 +386,8 @@ async def get_recent_emails(
     """
     try:
         if limit <= 0 or limit > 50:
-            raise HTTPException(
-                status_code=400, detail="Limit must be between 1 and 50"
+            return BaseResponse.failure(
+                message="Limit must be between 1 and 50", http_status_code=400
             )
 
         email_service = await get_email_service(db)
@@ -403,12 +408,10 @@ async def get_recent_emails(
             data=email_responses,
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
-        return BaseResponse.error(
+        return BaseResponse.failure(
             message="Failed to retrieve recent emails",
-            status_code=500,
+            http_status_code=500,
             data=ErrorDetails(
                 error_code="INTERNAL_SERVER_ERROR",
                 error_type="RetrievalError",

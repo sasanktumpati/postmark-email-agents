@@ -47,12 +47,10 @@ async def postmark_webhook(
             raw_data = await request.json()
         except Exception as e:
             logger.error(f"Failed to parse webhook JSON: {e}")
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "detail": "Invalid JSON payload",
-                    "error_code": "INVALID_JSON",
-                },
+            return BaseResponse.failure(
+                message="Invalid JSON payload",
+                data={"error_code": "INVALID_JSON"},
+                http_status_code=400,
             )
 
         logger.info(
@@ -63,12 +61,10 @@ async def postmark_webhook(
         missing_fields = [field for field in required_fields if not raw_data.get(field)]
         if missing_fields:
             logger.error(f"Missing required fields in webhook: {missing_fields}")
-            return JSONResponse(
-                status_code=422,
-                content={
-                    "detail": f"Missing required fields: {', '.join(missing_fields)}",
-                    "error_code": "MISSING_REQUIRED_FIELDS",
-                },
+            return BaseResponse.failure(
+                message=f"Missing required fields: {', '.join(missing_fields)}",
+                data={"error_code": "MISSING_REQUIRED_FIELDS"},
+                http_status_code=422,
             )
 
         webhook_service = await get_webhook_service(db)
@@ -87,20 +83,15 @@ async def postmark_webhook(
             attachments_count=int(result.get("attachments_count", 0)),
         )
 
-        response = BaseResponse.success(
+        return BaseResponse.success(
             message="Email processed successfully",
             data=response_data,
-            status_code=201 if not response_data.is_duplicate else 200,
-        )
-
-        return JSONResponse(
-            content=response.to_dict(),
-            status_code=response.status_code,
+            http_status_code=201 if not response_data.is_duplicate else 200,
         )
 
     except ValueError as e:
         logger.error(f"Validation error in webhook processing: {str(e)}")
-        response = BaseResponse.error(
+        return BaseResponse.failure(
             message="Invalid webhook data received",
             data=ErrorDetails(
                 error_code="VALIDATION_ERROR",
@@ -108,14 +99,11 @@ async def postmark_webhook(
                 details={"validation_error": str(e)},
                 suggestions="Please ensure the webhook payload matches Postmark's expected format",
             ),
-            status_code=422,
-        )
-        return JSONResponse(
-            content=response.to_dict(), status_code=response.status_code
+            http_status_code=422,
         )
     except KeyError as e:
         logger.error(f"Missing required field in webhook: {str(e)}")
-        response = BaseResponse.error(
+        return BaseResponse.failure(
             message="Missing required field in webhook data",
             data=ErrorDetails(
                 error_code="MISSING_FIELD",
@@ -123,14 +111,11 @@ async def postmark_webhook(
                 details={"missing_field": str(e)},
                 suggestions="Please check that all required fields are present in the webhook payload",
             ),
-            status_code=422,
-        )
-        return JSONResponse(
-            content=response.to_dict(), status_code=response.status_code
+            http_status_code=422,
         )
     except Exception as e:
         logger.error(f"Unexpected error processing webhook: {str(e)}", exc_info=True)
-        response = BaseResponse.error(
+        return BaseResponse.failure(
             message="Internal server error processing webhook",
             data=ErrorDetails(
                 error_code="INTERNAL_ERROR",
@@ -138,16 +123,12 @@ async def postmark_webhook(
                 details={"error_message": str(e)},
                 suggestions="Please try again or contact support if the issue persists",
             ),
-            status_code=500,
-        )
-        return JSONResponse(
-            content=response.to_dict(),
-            status_code=response.status_code,
+            http_status_code=500,
         )
 
 
 @router.get("/health")
-async def webhook_health() -> BaseResponse[dict]:
+async def webhook_health() -> JSONResponse:
     """Health check endpoint for the webhook service."""
     from datetime import datetime
 

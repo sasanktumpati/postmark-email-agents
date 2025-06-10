@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse
 from app.core.config import get_config
 from app.core.db.database import get_db_session
 from app.core.logger import get_logger, log_api_access, log_auth_event
+from app.core.utils.response import BaseResponse
 from app.modules.users.repository import user_repository
 from app.modules.users.services import verify_api_key
 
@@ -66,7 +67,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/v1/health",
             "/docs",
             "/openapi.json",
-            "/v1/postmark-webhook",
+            "/v1/webhook/postmark-webhook",
         ]
         logger.debug(
             f"AuthMiddleware initialized. Excluded prefixes: {self.excluded_prefixes}"
@@ -123,10 +124,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 None,
                 f"{request.method} {request.url.path}",
             )
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={
-                    "detail": "API Key is missing",
+            return BaseResponse.failure(
+                http_status_code=status.HTTP_401_UNAUTHORIZED,
+                message="API Key is missing",
+                data={
                     "error_code": "MISSING_API_KEY",
                     "hint": f"Include your API key in the '{API_KEY_HEADER}' header",
                 },
@@ -145,13 +146,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 None,
                 f"{request.method} {request.url.path} | Retry after: {retry_after}s",
             )
-            return JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={
-                    "detail": "Rate limit exceeded",
-                    "error_code": "RATE_LIMIT_EXCEEDED",
-                    "retry_after": retry_after,
-                },
+            return BaseResponse.failure(
+                http_status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                message="Rate limit exceeded",
+                data={"error_code": "RATE_LIMIT_EXCEEDED", "retry_after": retry_after},
                 headers={"Retry-After": str(retry_after)},
             )
 
@@ -169,10 +167,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 None,
                 f"{request.method} {request.url.path}",
             )
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={
-                    "detail": "Invalid API Key",
+            return BaseResponse.failure(
+                http_status_code=status.HTTP_401_UNAUTHORIZED,
+                message="Invalid API Key",
+                data={
                     "error_code": "INVALID_API_KEY",
                     "hint": "Please check your API key and try again",
                 },
@@ -187,12 +185,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 logger.error(
                     f"Database error during user lookup for user_id {user_id}: {e}"
                 )
-                return JSONResponse(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    content={
-                        "detail": "Internal server error",
-                        "error_code": "DATABASE_ERROR",
-                    },
+                return BaseResponse.failure(
+                    http_status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    message="Internal server error",
+                    data={"error_code": "DATABASE_ERROR"},
                 )
 
         if not user:
@@ -207,9 +203,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 str(user_id),
                 f"{request.method} {request.url.path}",
             )
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"detail": "User not found", "error_code": "USER_NOT_FOUND"},
+            return BaseResponse.failure(
+                http_status_code=status.HTTP_401_UNAUTHORIZED,
+                message="User not found",
+                data={"error_code": "USER_NOT_FOUND"},
             )
         logger.debug(f"User {user.email} found. Checking account status.")
 
@@ -224,12 +221,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 str(user_id),
                 f"{request.method} {request.url.path} | Email: {user.email}",
             )
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={
-                    "detail": "User account is inactive",
-                    "error_code": "USER_INACTIVE",
-                },
+            return BaseResponse.failure(
+                http_status_code=status.HTTP_401_UNAUTHORIZED,
+                message="User account is inactive",
+                data={"error_code": "USER_INACTIVE"},
             )
         logger.debug(f"User {user.email} is active.")
 
@@ -244,12 +239,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 str(user_id),
                 f"{request.method} {request.url.path} | Email: {user.email}",
             )
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={
-                    "detail": "API key mismatch",
-                    "error_code": "API_KEY_MISMATCH",
-                },
+            return BaseResponse.failure(
+                http_status_code=status.HTTP_401_UNAUTHORIZED,
+                message="API key mismatch",
+                data={"error_code": "API_KEY_MISMATCH"},
             )
         logger.debug(f"API key matches for user {user.email}.")
 

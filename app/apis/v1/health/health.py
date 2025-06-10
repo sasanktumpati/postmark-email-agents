@@ -63,11 +63,11 @@ async def health_check() -> JSONResponse:
         return BaseResponse.success(
             message="Health check performed successfully.",
             data=app_health_data,
-            status_code=status_code,
+            http_status_code=status_code,
         )
 
     except Exception as e:
-        return BaseResponse.error(
+        return BaseResponse.failure(
             message=f"Health check internal server error: {str(e)}",
-            status_code=500,
+            http_status_code=500,
         )

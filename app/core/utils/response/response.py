@@ -1,5 +1,7 @@
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
+from fastapi import status as http_status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 T = TypeVar("T")
@@ -7,9 +9,11 @@ T = TypeVar("T")
 
 class BaseResponse(BaseModel, Generic[T]):
     status: int = Field(..., description="Status code: 0 for success, 1 for failure")
-    status_code: int = Field(..., description="HTTP status code")
     message: str = Field(..., min_length=1, description="Response message")
     data: Optional[T] = Field(None, description="Response data")
+    http_status_code: int = Field(
+        200, description="HTTP status code for the response", exclude=True
+    )
 
     @field_validator("status")
     @classmethod
@@ -18,33 +22,78 @@ class BaseResponse(BaseModel, Generic[T]):
             raise ValueError("Status must be 0 (success) or 1 (failure)")
         return v
 
+    @field_validator("http_status_code")
     @classmethod
-    def success(
-        cls, message: str, data: Optional[T] = None, status_code: int = 200
-    ) -> "BaseResponse[T]":
-        """Create a success response"""
-        return cls(status=0, status_code=status_code, message=message, data=data)
+    def validate_http_status_code(cls, v: int) -> int:
+        if not (100 <= v <= 599):
+            raise ValueError("HTTP status code must be between 100 and 599")
+        return v
 
     @classmethod
-    def error(
-        cls, message: str, data: Optional[T] = None, status_code: int = 400
-    ) -> "BaseResponse[T]":
-        """Create an error response"""
-        return cls(status=1, status_code=status_code, message=message, data=data)
+    def success(
+        cls,
+        message: str,
+        data: Optional[T] = None,
+        http_status_code: int = http_status.HTTP_200_OK,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> JSONResponse:
+        """Create a success JSON response with appropriate HTTP status code"""
+        response_data = cls(
+            status=0,
+            message=message,
+            data=data,
+            http_status_code=http_status_code,
+        )
+        return JSONResponse(
+            content=response_data.model_dump(exclude_none=True),
+            status_code=http_status_code,
+            headers=headers or {},
+        )
+
+    @classmethod
+    def failure(
+        cls,
+        message: str,
+        data: Optional[T] = None,
+        http_status_code: int = http_status.HTTP_400_BAD_REQUEST,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> JSONResponse:
+        """Create a failure JSON response with appropriate HTTP status code"""
+        response_data = cls(
+            status=1,
+            message=message,
+            data=data,
+            http_status_code=http_status_code,
+        )
+        return JSONResponse(
+            content=response_data.model_dump(exclude_none=True),
+            status_code=http_status_code,
+            headers=headers or {},
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
-        return self.model_dump()
+        return self.model_dump(exclude_none=True)
 
     def to_json(self) -> str:
         """Convert to JSON string"""
-        return self.model_dump_json()
+        return self.model_dump_json(exclude_none=True)
+
+    def to_json_response(
+        self, headers: Optional[Dict[str, str]] = None
+    ) -> JSONResponse:
+        """Convert to JSONResponse with appropriate HTTP status code"""
+        return JSONResponse(
+            content=self.model_dump(exclude_none=True),
+            status_code=self.http_status_code,
+            headers=headers or {},
+        )
 
     def __str__(self) -> str:
-        return f"BaseResponse(status={self.status}, status_code={self.status_code}, message='{self.message}')"
+        return f"BaseResponse(status={self.status}, message='{self.message}', http_status={self.http_status_code})"
 
     def __repr__(self) -> str:
-        return f"BaseResponse(status={self.status}, status_code={self.status_code}, message='{self.message}', data={self.data})"
+        return f"BaseResponse(status={self.status}, message='{self.message}', data={self.data}, http_status={self.http_status_code})"
 
 
 class PaginationInfo(BaseModel):
@@ -80,10 +129,12 @@ class PaginatedResponse(BaseModel, Generic[T]):
     """Model for Paginated Responses."""
 
     status: int = Field(..., description="Status code: 0 for success, 1 for failure")
-    status_code: int = Field(..., description="HTTP status code")
     message: str = Field(..., min_length=1, description="Response message")
     data: List[T] = Field(default_factory=list, description="List of items")
     pagination: PaginationInfo = Field(..., description="Pagination information")
+    http_status_code: int = Field(
+        200, description="HTTP status code for the response", exclude=True
+    )
 
     @field_validator("status")
     @classmethod
@@ -100,54 +151,66 @@ class PaginatedResponse(BaseModel, Generic[T]):
         page: int,
         limit: int,
         total_items: int,
-        status_code: int = 200,
-    ) -> "PaginatedResponse[T]":
+        http_status_code: int = 200,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> "JSONResponse":
         """Create a successful paginated response."""
         pagination = PaginationInfo.create(
             page=page, limit=limit, total_items=total_items
         )
-        return cls(
+        response_data = cls(
             status=0,
-            status_code=status_code,
             message=message,
             data=data,
             pagination=pagination,
+            http_status_code=http_status_code,
+        )
+        return JSONResponse(
+            content=response_data.model_dump(exclude_none=True),
+            status_code=http_status_code,
+            headers=headers or {},
         )
 
     @classmethod
-    def error(
+    def failure(
         cls,
         message: str,
         page: int = 1,
         limit: int = 10,
         total_items: int = 0,
-        status_code: int = 400,
-    ) -> "PaginatedResponse[T]":
+        http_status_code: int = 400,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> "JSONResponse":
         """Create an error paginated response."""
         pagination = PaginationInfo.create(
             page=page, limit=limit, total_items=total_items
         )
-        return cls(
+        response_data = cls(
             status=1,
-            status_code=status_code,
             message=message,
             data=[],
             pagination=pagination,
+            http_status_code=http_status_code,
+        )
+        return JSONResponse(
+            content=response_data.model_dump(exclude_none=True),
+            status_code=http_status_code,
+            headers=headers or {},
         )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
-        return self.model_dump()
+        return self.model_dump(exclude_none=True)
 
     def to_json(self) -> str:
         """Convert to JSON string"""
-        return self.model_dump_json()
+        return self.model_dump_json(exclude_none=True)
 
     def __str__(self) -> str:
-        return f"PaginatedResponse(status={self.status}, status_code={self.status_code}, message='{self.message}', items={len(self.data)})"
+        return f"PaginatedResponse(status={self.status}, message='{self.message}', items={len(self.data)})"
 
     def __repr__(self) -> str:
-        return f"PaginatedResponse(status={self.status}, status_code={self.status_code}, message='{self.message}', data={len(self.data)} items, pagination={self.pagination})"
+        return f"PaginatedResponse(status={self.status}, message='{self.message}', data={len(self.data)} items, pagination={self.pagination})"
 
 
 class ErrorDetails(BaseModel):
