@@ -507,7 +507,7 @@ class WebhookProcessingService:
             email_data = self.validate_webhook_request(raw_data)
             user_service = get_user_webhook_service()
             user, _ = await user_service.process_user_from_webhook(
-                email=email_data.OriginalRecipient,
+                email=email_data.From.strip(),
                 mailbox_hash=email_data.MailboxHash,
             )
 

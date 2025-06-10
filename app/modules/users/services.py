@@ -93,10 +93,10 @@ def verify_api_key_hash(api_key: str, stored_hash: str) -> bool:
 
 
 async def get_or_create_user_by_email_and_mailbox(
-    email: str, mailbox_hash: str, name: str
+    email: str, name: str, mailbox_hash: Optional[str] = None
 ) -> Tuple[User, bool]:
     """
-    Get or create user by email and mailbox hash.
+    Get or create user by email and optional mailbox hash.
     Returns (user, created) tuple.
     Enhanced with better error handling and validation.
     """
@@ -110,14 +110,13 @@ async def get_or_create_user_by_email_and_mailbox(
         )
         raise ValueError("Email address is required")
 
-    if not mailbox_hash or not mailbox_hash.strip():
-        logger.error(
-            "Mailbox hash is required for get_or_create_user_by_email_and_mailbox."
-        )
-        raise ValueError("Mailbox hash is required")
-
     email = email.strip().lower()
     name = name.strip() if name else ""
+
+    if mailbox_hash:
+        mailbox_hash = mailbox_hash.strip()
+    else:
+        mailbox_hash = email.split("@")[0].strip()
 
     async with get_db_session() as session:
         try:
